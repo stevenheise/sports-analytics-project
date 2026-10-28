@@ -9,6 +9,21 @@ inside/outside runs, middle/sideline passes, or charted screen passes. It report
 plays, touchdowns, and touchdown rate for each category and distance band.
 Touchdown rate means touchdowns divided by qualifying plays in that band.
 
+The dashboard also compares Steelers win rates across turnover-margin bands
+(from losing the turnover battle by 3+ to winning it by 3+). Turnovers here are
+interceptions and lost fumbles on pass/run plays. That comparison uses all downs
+in the selected seasons and reports wins divided by games, with ties counted as
+non-wins; it is descriptive, not evidence that turnovers caused the result.
+The dashboard presents the touchdown, turnover-margin, and defensive takeaway
+summaries as tables.
+
+The defensive takeaways table compares interceptions and sack-fumbles forced
+per opposing pass play by FTN's charted blitzer count (none, one, or two-plus).
+It also reports whether the defense recovered the sack-fumble. FTN charting
+starts in 2022 and does not provide man/zone coverage, blitzer position, or
+blitz direction, so the app does not infer those details. Earlier or unmatched
+plays are listed as unavailable rather than assigned to a blitz group.
+
 ### Run the app on Windows
 
 Open PowerShell in this project folder and run:
@@ -22,8 +37,19 @@ python -m streamlit run app.py
 
 If the workspace already has a `.venv` environment, skip the first command.
 The first app run downloads the selected seasons from nflverse; subsequent loads
-are cached for 24 hours. Choose seasons and a down in the sidebar. By default,
-the app selects the five most recently completed seasons. The data's
+are read from local Parquet files in `data/raw/`. To pre-download the default
+data set before opening the app, run:
+
+```powershell
+python download_nfl_data.py
+```
+
+The downloader stores full play-by-play files for the five most recently
+completed seasons and available FTN charting files for 2022 onward. The app
+automatically downloads and saves other selected seasons when their local files
+are missing. Raw data files are excluded from Git because of their size; they
+remain in your local project folder. Choose seasons and a down in the sidebar.
+By default, the app selects the five most recently completed seasons. The data's
 `yardline_100` field measures distance from the opponent's goal line. The `50+`
 bucket means more than 50 yards from that goal line; exactly 50 belongs in `41-50`.
 
@@ -48,10 +74,32 @@ python -m unittest discover -s tests -v
 
 ### Save summaries to TiDB
 
-The **Save current summary to TiDB** button writes the selected seasons, down
-filter, seven goal-line bands, play categories, play counts, touchdowns, and
-touchdown rates to `steelers_analytics.touchdown_summaries`. It does not upload
-raw play-by-play. The app connects over TLS and creates the dedicated
+Click **Save all summaries to TiDB** in the app to write all three dashboard
+summaries for the selected seasons. The touchdown table also records the selected
+down filter. One shared run ID links the rows saved by a single click:
+
+- `steelers_analytics.touchdown_summaries` stores distance bands, play
+  categories, plays, touchdowns, and touchdown rates.
+- `steelers_analytics.turnover_margin_outcomes` stores game outcomes by
+  Pittsburgh's turnover margin.
+- `steelers_analytics.defensive_turnovers_by_blitz` stores opposing pass plays,
+  interceptions, sack-fumbles, recoveries, and rates by charted blitz count.
+
+The app creates these tables if they do not exist. Saving does not upload raw
+play-by-play, and each save adds a new run rather than replacing earlier runs.
+You can inspect the most recent run in TiDB with:
+
+```sql
+SELECT * FROM steelers_analytics.turnover_margin_outcomes
+WHERE run_id = '<run-id-from-the-app>'
+ORDER BY turnover_margin;
+
+SELECT * FROM steelers_analytics.defensive_turnovers_by_blitz
+WHERE run_id = '<run-id-from-the-app>'
+ORDER BY blitz_pressure;
+```
+
+The app connects over TLS and creates the dedicated
 `steelers_analytics` database if it does not exist; the TiDB user needs permission
 to create that database the first time, then create and write the summary table.
 

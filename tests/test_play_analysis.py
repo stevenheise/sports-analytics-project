@@ -5,7 +5,13 @@ import mysql.connector
 import polars as pl
 
 import database
-from play_analysis import PLAY_TYPES, SITUATIONS, summarize_plays
+from play_analysis import (
+    PLAY_TYPES,
+    SITUATIONS,
+    summarize_defensive_turnovers_by_blitz,
+    summarize_plays,
+    summarize_turnover_margin_outcomes,
+)
 
 
 class SummarizePlaysTests(unittest.TestCase):
@@ -173,6 +179,229 @@ class SummarizePlaysTests(unittest.TestCase):
 
         connection.rollback.assert_called_once()
         connection.close.assert_called_once()
+
+    @patch("database.mysql.connector.connect")
+    def test_save_analysis_summaries_persists_all_tables_in_one_transaction(
+        self, connect: MagicMock
+    ) -> None:
+        connection = MagicMock()
+        cursor = MagicMock()
+        connection.cursor.return_value.__enter__.return_value = cursor
+        connect.return_value = connection
+
+        touchdown = summarize_plays(self.pbp, [2024], ftn=self.ftn)
+        outcomes = pl.DataFrame(
+            {
+                "Turnover margin": ["Even"],
+                "Games": [2],
+                "Wins": [1],
+                "Losses": [1],
+                "Ties": [0],
+                "Win rate (%)": [50.0],
+            }
+        )
+        defensive = pl.DataFrame(
+            {
+                "Blitz pressure": ["No charted blitzers"],
+                "Pass plays": [10],
+                "Interceptions": [1],
+                "Strip sacks (forced)": [2],
+                "Strip sacks recovered": [1],
+                "Interception rate (%)": [10.0],
+                "Strip-sack rate (%)": [20.0],
+            }
+        )
+
+        run_id = database.save_analysis_summaries(
+            touchdown, outcomes, defensive, [2023, 2024], down=1
+        )
+
+        self.assertTrue(run_id)
+        self.assertEqual(cursor.execute.call_count, 3)
+        self.assertEqual(cursor.executemany.call_count, 3)
+        for saved_rows in (
+            cursor.executemany.call_args_list[0].args[1],
+            cursor.executemany.call_args_list[1].args[1],
+            cursor.executemany.call_args_list[2].args[1],
+        ):
+            self.assertTrue(all(row[0] == run_id for row in saved_rows))
+            self.assertTrue(all(row[1] == "2023,2024" for row in saved_rows))
+        self.assertEqual(
+            len(cursor.executemany.call_args_list[0].args[1]), touchdown.height
+        )
+        self.assertEqual(
+            cursor.executemany.call_args_list[1].args[1][0][2], "Even"
+        )
+        self.assertEqual(
+            cursor.executemany.call_args_list[2].args[1][0][2],
+            "No charted blitzers",
+        )
+        connection.start_transaction.assert_called_once()
+        connection.commit.assert_called_once()
+        connection.close.assert_called_once()
+
+    @patch("database.mysql.connector.connect")
+    def test_save_analysis_summaries_rolls_back_on_insert_error(
+        self, connect: MagicMock
+    ) -> None:
+        connection = MagicMock()
+        cursor = MagicMock()
+        cursor.executemany.side_effect = mysql.connector.Error("write failed")
+        connection.cursor.return_value.__enter__.return_value = cursor
+        connect.return_value = connection
+
+        touchdown = summarize_plays(self.pbp, [2024], ftn=self.ftn)
+        outcomes = pl.DataFrame(
+            {
+                "Turnover margin": ["Even"],
+                "Games": [1],
+                "Wins": [1],
+                "Losses": [0],
+                "Ties": [0],
+                "Win rate (%)": [100.0],
+            }
+        )
+        defensive = pl.DataFrame(
+            {
+                "Blitz pressure": ["No charted blitzers"],
+                "Pass plays": [1],
+                "Interceptions": [0],
+                "Strip sacks (forced)": [0],
+                "Strip sacks recovered": [0],
+                "Interception rate (%)": [0.0],
+                "Strip-sack rate (%)": [0.0],
+            }
+        )
+
+        with self.assertRaises(mysql.connector.Error):
+            database.save_analysis_summaries(
+                touchdown, outcomes, defensive, [2024], down=None
+            )
+
+        connection.rollback.assert_called_once()
+        connection.close.assert_called_once()
+
+
+class TurnoverMarginOutcomeTests(unittest.TestCase):
+    def test_summarizes_win_rates_by_turnover_margin(self) -> None:
+        rows = []
+        games = [
+            ("win_by_one", 2024, "PIT", "BAL", 24, 20, 1, 2),
+            ("loss_by_one", 2024, "PIT", "CLE", 10, 17, 2, 1),
+            ("tie_even", 2024, "PIT", "CIN", 14, 14, 0, 0),
+            ("win_by_three_plus", 2024, "PIT", "HOU", 31, 10, 0, 3),
+            ("other_season", 2023, "PIT", "NYJ", 20, 10, 0, 0),
+        ]
+        for game_id, season, home, away, home_score, away_score, pit_to, opp_to in games:
+            for team, turnovers in [("PIT", pit_to), (away, opp_to)]:
+                for index in range(max(turnovers, 1)):
+                    rows.append(
+                        {
+                            "game_id": game_id,
+                            "season": season,
+                            "home_team": home,
+                            "away_team": away,
+                            "home_score": home_score,
+                            "away_score": away_score,
+                            "posteam": team,
+                            "play_type": "pass",
+                            "interception": int(index < turnovers),
+                            "fumble_lost": 0,
+                        }
+                    )
+        result = summarize_turnover_margin_outcomes(
+            pl.DataFrame(rows), [2024]
+        )
+        by_margin = {
+            row["Turnover margin"]: row for row in result.to_dicts()
+        }
+
+        self.assertEqual(result.height, 7)
+        self.assertEqual(by_margin["Won by 1"]["Games"], 1)
+        self.assertEqual(by_margin["Won by 1"]["Wins"], 1)
+        self.assertEqual(by_margin["Won by 1"]["Win rate (%)"], 100.0)
+        self.assertEqual(by_margin["Lost by 1"]["Losses"], 1)
+        self.assertEqual(by_margin["Lost by 1"]["Win rate (%)"], 0.0)
+        self.assertEqual(by_margin["Even"]["Ties"], 1)
+        self.assertEqual(by_margin["Even"]["Win rate (%)"], 0.0)
+        self.assertEqual(by_margin["Won by 3+"]["Wins"], 1)
+        self.assertEqual(by_margin["Lost by 2"]["Games"], 0)
+        self.assertIsNone(by_margin["Lost by 2"]["Win rate (%)"])
+
+
+class DefensiveTurnoverByBlitzTests(unittest.TestCase):
+    def test_summarizes_takeaways_by_charted_blitz_count(self) -> None:
+        pbp = pl.DataFrame(
+            {
+                "game_id": ["g1", "g1", "g1", "g1", "g2"],
+                "play_id": [1, 2, 3, 4, 5],
+                "season": [2024, 2024, 2024, 2024, 2021],
+                "posteam": ["BAL", "BAL", "BAL", "BAL", "CLE"],
+                "defteam": ["PIT"] * 5,
+                "play_type": ["pass"] * 5,
+                "interception": [1, 0, 0, 0, 1],
+                "sack": [0, 1, 1, 0, 0],
+                "fumble_forced": [0, 1, 1, 0, 0],
+                "fumble_lost": [0, 1, 0, 0, 0],
+            }
+        )
+        ftn = pl.DataFrame(
+            {
+                "nflverse_game_id": ["g1"] * 4,
+                "nflverse_play_id": [1, 2, 3, 4],
+                "n_blitzers": [0, 1, 2, 0],
+            }
+        )
+
+        result = summarize_defensive_turnovers_by_blitz(pbp, [2021, 2024], ftn)
+        by_blitz = {
+            row["Blitz pressure"]: row for row in result.to_dicts()
+        }
+
+        self.assertEqual(result.height, 4)
+        self.assertEqual(by_blitz["No charted blitzers"]["Pass plays"], 2)
+        self.assertEqual(by_blitz["No charted blitzers"]["Interceptions"], 1)
+        self.assertEqual(
+            by_blitz["No charted blitzers"]["Interception rate (%)"], 50.0
+        )
+        self.assertEqual(
+            by_blitz["1 charted blitzer"]["Strip sacks (forced)"], 1
+        )
+        self.assertEqual(
+            by_blitz["1 charted blitzer"]["Strip sacks recovered"], 1
+        )
+        self.assertEqual(
+            by_blitz["2+ charted blitzers"]["Strip sacks recovered"], 0
+        )
+        self.assertEqual(
+            by_blitz["Blitz count unavailable"]["Interceptions"], 1
+        )
+        self.assertEqual(
+            by_blitz["Blitz count unavailable"]["Pass plays"], 1
+        )
+
+    def test_missing_ftn_data_keeps_pass_plays_unavailable(self) -> None:
+        pbp = pl.DataFrame(
+            {
+                "game_id": ["g1"],
+                "play_id": [1],
+                "season": [2021],
+                "posteam": ["BAL"],
+                "defteam": ["PIT"],
+                "play_type": ["pass"],
+                "interception": [0],
+                "sack": [0],
+                "fumble_forced": [0],
+                "fumble_lost": [0],
+            }
+        )
+        result = summarize_defensive_turnovers_by_blitz(pbp, [2021])
+        unavailable = result.filter(
+            pl.col("Blitz pressure") == "Blitz count unavailable"
+        ).row(0, named=True)
+
+        self.assertEqual(unavailable["Pass plays"], 1)
+        self.assertEqual(unavailable["Interception rate (%)"], 0.0)
 
 
 if __name__ == "__main__":

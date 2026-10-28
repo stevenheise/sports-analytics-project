@@ -1,4 +1,4 @@
-"""Streamlit dashboard for Pittsburgh Steelers touchdown rates by field position."""
+"""Streamlit dashboard for Pittsburgh Steelers play and game analysis."""
 
 from datetime import date
 
@@ -7,20 +7,26 @@ import mysql.connector
 import polars as pl
 import streamlit as st
 
-from database import DatabaseConfigurationError, save_touchdown_summary
-from play_analysis import SITUATIONS, summarize_plays
+from database import DatabaseConfigurationError, save_analysis_summaries
+from nfl_data import DATA_DIR, load_ftn_charting as read_ftn_charting
+from nfl_data import load_play_by_play as read_play_by_play
+from play_analysis import (
+    summarize_defensive_turnovers_by_blitz,
+    summarize_plays,
+    summarize_turnover_margin_outcomes,
+)
 
 
 @st.cache_data(show_spinner=False, ttl=24 * 60 * 60)
 def load_play_by_play(seasons: tuple[int, ...]) -> pl.DataFrame:
-    """Download and cache nflverse play-by-play data for the requested seasons."""
-    return nfl.load_pbp(list(seasons))
+    """Read local play-by-play files, downloading and caching missing seasons."""
+    return read_play_by_play(seasons)
 
 
 @st.cache_data(show_spinner=False, ttl=24 * 60 * 60)
 def load_ftn_charting(seasons: tuple[int, ...]) -> pl.DataFrame:
-    """Download and cache FTN charting, available from the 2022 season."""
-    return nfl.load_ftn_charting(list(seasons))
+    """Read local FTN files, downloading and caching missing seasons."""
+    return read_ftn_charting(seasons)
 
 
 def main() -> None:
@@ -38,10 +44,13 @@ def main() -> None:
             background-color: #f5f5f3;
             color: #101010;
         }
-        section[data-testid="stMain"] * { color: #101010 !important; }
         [data-testid="stHeader"] { background-color: rgba(245, 245, 243, 0.9); }
-        .stApp section[data-testid="stMain"] h2,
-        .stApp section[data-testid="stMain"] h3 {
+        section[data-testid="stMain"] h1,
+        section[data-testid="stMain"] h2,
+        section[data-testid="stMain"] h3,
+        section[data-testid="stMain"] h4,
+        section[data-testid="stMain"] p,
+        section[data-testid="stMain"] label {
             color: var(--steelers-black) !important;
         }
         section[data-testid="stMain"] table {
@@ -60,7 +69,13 @@ def main() -> None:
             border-bottom: 1px solid #d8d8d8;
         }
         [data-testid="stSidebar"] { background-color: #101010; }
-        [data-testid="stSidebar"] * { color: #ffffff; }
+        [data-testid="stSidebar"] h1,
+        [data-testid="stSidebar"] h2,
+        [data-testid="stSidebar"] h3,
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] label {
+            color: #ffffff;
+        }
         [data-testid="stSidebar"] [data-baseweb="tag"] {
             background-color: #ffb612; color: #101010;
         }
@@ -128,12 +143,19 @@ def main() -> None:
     summary = summarize_plays(
         pbp, list(season_key), down=selected_down, ftn=ftn
     )
+    turnover_outcomes = summarize_turnover_margin_outcomes(
+        pbp, list(season_key)
+    )
+    defensive_turnovers = summarize_defensive_turnovers_by_blitz(
+        pbp, list(season_key), ftn=ftn
+    )
     play_count = int(summary.get_column("Plays").sum())
 
     selected_down_label = "all downs" if selected_down is None else f"down {selected_down}"
     st.caption(
         f"Seasons: {', '.join(map(str, season_key))} · "
-        f"Filter: {selected_down_label} · Loaded {date.today().isoformat()}"
+        f"Filter: {selected_down_label} · Loaded {date.today().isoformat()} · "
+        f"Local source cache: `{DATA_DIR.relative_to(DATA_DIR.parent.parent)}`"
     )
     total_col, scope_col = st.columns(2)
     total_col.metric("Qualifying plays", f"{play_count:,}")
@@ -162,47 +184,73 @@ def main() -> None:
             )
 
     st.subheader("Touchdown rate by distance to the goal line")
-    for situation in SITUATIONS:
-        st.markdown(
-            f"<h3 style='color:#101010'>{situation} yards from goal</h3>",
-            unsafe_allow_html=True,
-        )
-        table = (
-            summary.filter(pl.col("Situation") == situation)
-            .select("Play type", "Plays", "Touchdowns", "Touchdown rate (%)")
-        )
-        markdown_rows = [
-            "| Play type | Plays | Touchdowns | Touchdown rate |",
-            "|:--|--:|--:|--:|",
-        ]
-        for row in table.to_dicts():
-            touchdown_rate = (
-                "—"
-                if row["Touchdown rate (%)"] is None
-                else f"{row['Touchdown rate (%)']:.1f}%"
+    st.dataframe(
+        summary,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Touchdown rate (%)": st.column_config.NumberColumn(
+                "Touchdown rate",
+                format="%.1f%%",
             )
-            touchdown_count = (
-                "—"
-                if row["Touchdowns"] is None
-                else f"{row['Touchdowns']:,}"
-            )
-            markdown_rows.append(
-                f"| {row['Play type']} | {row['Plays']:,} | "
-                f"{touchdown_count} | {touchdown_rate} |"
-            )
-        st.markdown("\n".join(markdown_rows))
-
-    st.subheader("Save summary to TiDB")
-    st.caption(
-        "Saves the displayed season/down selection and all distance/category "
-        "summary rows to the `steelers_analytics.touchdown_summaries` table. "
-        "Raw play-by-play is not stored."
+        },
     )
-    if st.button("Save current summary to TiDB", disabled=play_count == 0):
+
+    st.subheader("Win rate by turnover margin")
+    st.caption(
+        "Turnover margin is Steelers takeaways minus giveaways. Win rate is "
+        "wins divided by games, with ties counted as non-wins."
+    )
+    st.dataframe(
+        turnover_outcomes,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Win rate (%)": st.column_config.NumberColumn(
+                "Win rate",
+                format="%.1f%%",
+            )
+        },
+    )
+
+    st.subheader("Steelers defensive takeaways by blitz count")
+    st.caption(
+        "Interceptions and sack-fumbles forced on opposing pass plays. Rates "
+        "use pass plays in each group as the denominator. FTN charting does not "
+        "identify coverage type, blitzer position, or rush direction."
+    )
+    st.dataframe(
+        defensive_turnovers,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Interception rate (%)": st.column_config.NumberColumn(
+                "Interception rate",
+                format="%.1f%%",
+            ),
+            "Strip-sack rate (%)": st.column_config.NumberColumn(
+                "Strip-sack rate",
+                format="%.1f%%",
+            ),
+        },
+    )
+
+    st.subheader("Save dashboard summaries to TiDB")
+    st.caption(
+        "Saves the touchdown, turnover-margin, and defensive blitz summaries "
+        "for the selected seasons to their respective TiDB tables. The "
+        "touchdown summary also includes the selected down filter. Raw "
+        "play-by-play is not stored."
+    )
+    if st.button("Save all summaries to TiDB", disabled=play_count == 0):
         try:
-            with st.spinner("Saving touchdown summary to TiDB…"):
-                run_id = save_touchdown_summary(
-                    summary, list(season_key), selected_down
+            with st.spinner("Saving dashboard summaries to TiDB…"):
+                run_id = save_analysis_summaries(
+                    summary,
+                    turnover_outcomes,
+                    defensive_turnovers,
+                    list(season_key),
+                    selected_down,
                 )
         except DatabaseConfigurationError as exc:
             st.error(str(exc))
@@ -220,7 +268,9 @@ def main() -> None:
                     "TLS/network access, and database permissions."
                 )
         else:
-            st.success(f"Summary saved to TiDB. Run ID: `{run_id}`")
+            st.success(
+                f"All dashboard summaries saved to TiDB. Run ID: `{run_id}`"
+            )
 
     st.subheader("How to interpret this")
     st.markdown(
