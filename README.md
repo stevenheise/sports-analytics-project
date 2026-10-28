@@ -114,6 +114,32 @@ Connection secrets are read locally and are excluded from Git:
 
 Do not commit `.env` or paste its password into source code.
 
+### Deploy the saved-summary dashboard to Vercel
+
+The local Streamlit app is not the Vercel entry point. The separate `vercel/`
+folder contains a small FastAPI app and tables-only web page that reads saved
+runs from TiDB. In Vercel, import this repository and set **Root Directory** to
+`vercel`; Vercel will detect FastAPI from `vercel/requirements.txt`.
+
+Add these environment variables in the Vercel project settings for Production
+(and Preview if you need preview deployments to access TiDB):
+
+- `TIDB_HOST`: the TiDB Cloud hostname
+- `TIDB_PORT`: `4000`
+- `TIDB_USER`: the cluster-prefixed TiDB username
+- `TIDB_PASSWORD`: the TiDB password
+
+Alternatively, set `TIDB_DATABASE_URL` to a MySQL URL selecting
+`steelers_analytics`. Keep credentials only in Vercel environment settings, not
+in source code. Ensure TiDB's network access settings permit connections from
+the Vercel deployment.
+
+Before deploying, run the local Streamlit app and click **Save all summaries to
+TiDB** at least once. The Vercel dashboard lists those saved runs; it does not
+download or recalculate raw nflverse data. Push the deployment files to GitHub,
+then redeploy in Vercel. The page shows the most recent 50 runs and lets you
+select a run to view its three summary tables.
+
 ## NFL offense mismatch notebook
 
 This file is a step-by-step notebook-style guide for using **NFL Data Py** to explore how the Pittsburgh Steelers can create mismatches on offense. Because the reminder limits the change to this one file, the complete notebook is written here in the README instead of creating separate files.

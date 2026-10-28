@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101010" />
+    <title>Steelers Analytics</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #171717;
+        background: #f3f4f4;
+      }
+
+      * { box-sizing: border-box; }
+
+      body { margin: 0; min-width: 320px; }
+
+      .hero {
+        color: #fff;
+        background: #101010;
+        border-bottom: 5px solid #ffb612;
+        padding: 2rem clamp(1rem, 5vw, 4rem) 1.75rem;
+      }
+
+      .hero-inner, main {
+        width: min(1180px, 100%);
+        margin: 0 auto;
+      }
+
+      .eyebrow {
+        margin: 0 0 .4rem;
+        color: #ffcb4b;
+        font-size: .75rem;
+        font-weight: 800;
+        letter-spacing: .16em;
+        text-transform: uppercase;
+      }
+
+      h1 { margin: 0; font-size: clamp(2rem, 5vw, 3.2rem); }
+      .subtitle { margin: .55rem 0 0; color: #d3d3d3; }
+
+      main { padding: 1.5rem clamp(1rem, 3vw, 2rem) 3rem; }
+
+      .toolbar, .panel {
+        border: 1px solid #dedede;
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: 0 3px 14px rgb(0 0 0 / 4%);
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: end;
+        gap: 1rem;
+        flex-wrap: wrap;
+        padding: 1rem;
+      }
+
+      label { display: grid; gap: .4rem; font-size: .86rem; font-weight: 700; }
+
+      select, button {
+        min-height: 42px;
+        border: 1px solid #bdbdbd;
+        border-radius: 7px;
+        padding: .55rem .75rem;
+        background: #fff;
+        color: #171717;
+        font: inherit;
+      }
+
+      select { min-width: min(440px, 80vw); }
+
+      button {
+        border-color: #101010;
+        background: #101010;
+        color: white;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:hover { background: #303030; }
+      button:focus-visible, select:focus-visible { outline: 3px solid #ffb612; outline-offset: 2px; }
+      #status { margin: 0; color: #525252; font-size: .9rem; }
+      #status.error { color: #a32121; }
+      #status.success { color: #216b38; }
+
+      .panels { display: grid; gap: 1rem; margin-top: 1rem; }
+
+      .panel { overflow: hidden; }
+      .panel-heading { padding: 1.1rem 1.2rem .85rem; }
+      h2 { margin: 0; font-size: 1.2rem; }
+      .description { margin: .35rem 0 0; color: #5b5b5b; font-size: .9rem; }
+      .table-wrap { overflow-x: auto; border-top: 1px solid #e6e6e6; }
+
+      table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+      th, td { padding: .72rem .85rem; text-align: left; white-space: nowrap; }
+      th { background: #ffb612; color: #111; font-size: .78rem; letter-spacing: .02em; }
+      td { border-bottom: 1px solid #ededed; }
+      tbody tr:nth-child(even) { background: #fafafa; }
+      tbody tr:last-child td { border-bottom: 0; }
+      .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+      .empty { color: #666; text-align: center; padding: 1.2rem; }
+      .footnote { margin: 1rem .15rem 0; color: #5b5b5b; font-size: .82rem; line-height: 1.5; }
+
+      @media (min-width: 900px) {
+        .panels { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+        .panel:first-child { grid-column: 1 / -1; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero-inner">
+        <p class="eyebrow">Pittsburgh Steelers · Data dashboard</p>
+        <h1>Steelers Analytics</h1>
+        <p class="subtitle">Explore saved touchdown, turnover, and defensive takeaway summaries.</p>
+      </div>
+    </header>
+    <main>
+      <section class="toolbar" aria-label="Saved analysis selection">
+        <label for="run-select">
+          Saved analysis run
+          <select id="run-select" disabled>
+            <option>Loading saved runs…</option>
+          </select>
+        </label>
+        <button id="refresh" type="button">Refresh runs</button>
+        <p id="status" role="status" aria-live="polite">Connecting to TiDB…</p>
+      </section>
+
+      <div class="panels">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Touchdown rate by distance to goal</h2>
+            <p class="description">Plays, touchdowns, and touchdown rate for each field-position and play-category group.</p>
+          </div>
+          <div class="table-wrap" id="touchdown-table"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Win rate by turnover margin</h2>
+            <p class="description">Turnover margin is Steelers takeaways minus giveaways; ties count as non-wins.</p>
+          </div>
+          <div class="table-wrap" id="turnover-table"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Defensive takeaways by blitz count</h2>
+            <p class="description">Interceptions and sack-fumbles forced per opposing pass play.</p>
+          </div>
+          <div class="table-wrap" id="defense-table"></div>
+        </section>
+      </div>
+      <p class="footnote">
+        These are descriptive summaries, not causal estimates. Blitz-count data is
+        limited to charted plays and does not identify man/zone coverage, blitzer
+        position, or blitz direction. Save a run from the local app before it will
+        appear here.
+      </p>
+    </main>
+    <script>
+      const runSelect = document.querySelector("#run-select");
+      const status = document.querySelector("#status");
+
+      const columns = {
+        "touchdown-table": [
+          ["situation", "Distance"],
+          ["play_category", "Play category"],
+          ["plays", "Plays", "number"],
+          ["touchdowns", "Touchdowns", "number"],
+          ["touchdown_rate", "Touchdown rate", "percent"],
+        ],
+        "turnover-table": [
+          ["turnover_margin", "Turnover margin"],
+          ["games", "Games", "number"],
+          ["wins", "Wins", "number"],
+          ["losses", "Losses", "number"],
+          ["ties", "Ties", "number"],
+          ["win_rate", "Win rate", "percent"],
+        ],
+        "defense-table": [
+          ["blitz_pressure", "Blitz count"],
+          ["pass_plays", "Pass plays", "number"],
+          ["interceptions", "Interceptions", "number"],
+          ["interception_rate", "Interception rate", "percent"],
+          ["strip_sacks_forced", "Strip sacks forced", "number"],
+          ["strip_sacks_recovered", "Recovered", "number"],
+          ["strip_sack_rate", "Strip-sack rate", "percent"],
+        ],
+      };
+
+      function setStatus(message, kind = "") {
+        status.textContent = message;
+        status.className = kind;
+      }
+
+      function formatValue(value, kind) {
+        if (value === null || value === undefined) return "—";
+        if (kind === "number") return Number(value).toLocaleString();
+        if (kind === "percent") return `${Number(value).toFixed(1)}%`;
+        return String(value);
+      }
+
+      function renderTable(containerId, rows) {
+        const container = document.getElementById(containerId);
+        container.replaceChildren();
+        const table = document.createElement("table");
+        const header = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        for (const [, title, kind] of columns[containerId]) {
+          const cell = document.createElement("th");
+          cell.scope = "col";
+          cell.textContent = title;
+          if (kind) cell.className = "numeric";
+          headerRow.append(cell);
+        }
+        header.append(headerRow);
+        table.append(header);
+        const body = document.createElement("tbody");
+        if (rows.length === 0) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = columns[containerId].length;
+          cell.className = "empty";
+          cell.textContent = "No rows were saved for this analysis.";
+          row.append(cell);
+          body.append(row);
+        } else {
+          for (const record of rows) {
+            const row = document.createElement("tr");
+            for (const [key, , kind] of columns[containerId]) {
+              const cell = document.createElement("td");
+              cell.textContent = formatValue(record[key], kind);
+              if (kind) cell.className = "numeric";
+              row.append(cell);
+            }
+            body.append(row);
+          }
+        }
+        table.append(body);
+        container.append(table);
+      }
+
+      async function loadRun(runId) {
+        if (!runId) return;
+        setStatus("Loading saved analysis…");
+        try {
+          const response = await fetch(`/api/runs/${encodeURIComponent(runId)}`);
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.detail || "Could not load this run.");
+          renderTable("touchdown-table", payload.touchdown_summary);
+          renderTable("turnover-table", payload.turnover_outcomes);
+          renderTable("defense-table", payload.defensive_turnovers);
+          setStatus(`Showing run ${payload.run_id}`, "success");
+        } catch (error) {
+          setStatus(error.message, "error");
+        }
+      }
+
+      async function loadRuns() {
+        runSelect.disabled = true;
+        setStatus("Loading saved runs from TiDB…");
+        try {
+          const response = await fetch("/api/runs");
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.detail || "Could not load saved runs.");
+          runSelect.replaceChildren();
+          for (const run of payload.runs) {
+            const option = document.createElement("option");
+            option.value = run.run_id;
+            const down = run.down_filter === null ? "all downs" : `down ${run.down_filter}`;
+            const savedAt = run.saved_at ? new Date(run.saved_at).toLocaleString() : "";
+            option.textContent = `${run.seasons} · ${down} · ${savedAt} · ${run.run_id}`;
+            runSelect.append(option);
+          }
+          if (payload.runs.length === 0) {
+            const option = document.createElement("option");
+            option.textContent = "No saved analysis runs";
+            runSelect.append(option);
+            setStatus("No saved runs found. Save a run from the local app first.");
+            return;
+          }
+          runSelect.disabled = false;
+          await loadRun(runSelect.value);
+        } catch (error) {
+          runSelect.replaceChildren();
+          const option = document.createElement("option");
+          option.textContent = "Could not load saved runs";
+          runSelect.append(option);
+          setStatus(error.message, "error");
+        }
+      }
+
+      runSelect.addEventListener("change", () => loadRun(runSelect.value));
+      document.querySelector("#refresh").addEventListener("click", loadRuns);
+      loadRuns();
+    </script>
+  </body>
+</html>
