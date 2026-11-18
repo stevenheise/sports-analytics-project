@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS {PLAYER_VALUES_TABLE_NAME} (
     games INT UNSIGNED NOT NULL,
     seasons_count TINYINT UNSIGNED NOT NULL,
     cap_hit_m DECIMAL(12, 3) NOT NULL,
-    offensive_yards BIGINT UNSIGNED NOT NULL,
+    offensive_yards BIGINT NOT NULL,
     offensive_touchdowns INT UNSIGNED NOT NULL,
     defensive_interceptions INT UNSIGNED NOT NULL,
     forced_fumbles INT UNSIGNED NOT NULL,
@@ -326,6 +326,10 @@ def save_analysis_summaries(
         with connection.cursor() as cursor:
             for create_sql, _, _ in inserts:
                 cursor.execute(create_sql)
+            cursor.execute(
+                f"ALTER TABLE {PLAYER_VALUES_TABLE_NAME} "
+                "MODIFY COLUMN offensive_yards BIGINT NOT NULL"
+            )
             connection.start_transaction()
             for _, insert_sql, rows in inserts:
                 cursor.executemany(insert_sql, rows)

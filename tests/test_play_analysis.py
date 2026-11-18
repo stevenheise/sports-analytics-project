@@ -243,7 +243,11 @@ class SummarizePlaysTests(unittest.TestCase):
         )
 
         self.assertTrue(run_id)
-        self.assertEqual(cursor.execute.call_count, 4)
+        self.assertEqual(cursor.execute.call_count, 5)
+        self.assertIn(
+            "ALTER TABLE player_value_summaries",
+            cursor.execute.call_args_list[-1].args[0],
+        )
         self.assertEqual(cursor.executemany.call_count, 4)
         for saved_rows in (
             cursor.executemany.call_args_list[0].args[1],
