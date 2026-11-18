@@ -17,6 +17,18 @@ non-wins; it is descriptive, not evidence that turnovers caused the result.
 The dashboard presents the touchdown, turnover-margin, and defensive takeaway
 summaries as tables.
 
+The player-value view compares leaguewide player production with annual cap
+hits across the selected seasons. Offense ranks QBs by passing plus rushing
+yards/touchdowns, RBs by rushing plus receiving, and WRs/TEs by receiving.
+Defense ranks DBs, DLs, and LBs by interceptions plus opponent-fumble recoveries;
+forced fumbles are shown separately. Efficiency is production per $1 million of
+cap hit and is ranked only within the same position group. The default minimum
+is 16 games to reduce tiny-sample spikes. Steelers players are marked in the
+leaguewide rankings and can be filtered. Offensive line and special-teams
+positions are not scored because the source does not provide equivalent
+individual production measures for those groups. This is a descriptive cap-hit
+comparison, not a complete measure of player value.
+
 The defensive takeaways table compares interceptions and sack-fumbles forced
 per opposing pass play by FTN's charted blitzer count (none, one, or two-plus).
 It also reports whether the defense recovered the sack-fumble. FTN charting
@@ -84,6 +96,8 @@ down filter. One shared run ID links the rows saved by a single click:
   Pittsburgh's turnover margin.
 - `steelers_analytics.defensive_turnovers_by_blitz` stores opposing pass plays,
   interceptions, sack-fumbles, recoveries, and rates by charted blitz count.
+- `steelers_analytics.player_value_summaries` stores leaguewide player stats,
+  cap hits, position groups, and Steelers markers for the selected seasons.
 
 The app creates these tables if they do not exist. Saving does not upload raw
 play-by-play, and each save adds a new run rather than replacing earlier runs.
@@ -117,8 +131,8 @@ Do not commit `.env` or paste its password into source code.
 ### Deploy the saved-summary dashboard to Vercel
 
 The local Streamlit app is not the Vercel entry point. The separate `vercel/`
-folder contains a small FastAPI app and tables-only web page that reads saved
-runs from TiDB. In Vercel, import this repository and set **Root Directory** to
+folder contains a small FastAPI app and read-only web page that reads saved runs
+from TiDB. In Vercel, import this repository and set **Root Directory** to
 `vercel`; Vercel will detect FastAPI from `vercel/requirements.txt`.
 
 Add these environment variables in the Vercel project settings for Production
@@ -135,10 +149,11 @@ in source code. Ensure TiDB's network access settings permit connections from
 the Vercel deployment.
 
 Before deploying, run the local Streamlit app and click **Save all summaries to
-TiDB** at least once. The Vercel dashboard lists those saved runs; it does not
-download or recalculate raw nflverse data. Push the deployment files to GitHub,
-then redeploy in Vercel. The page shows the most recent 50 runs and lets you
-select a run to view its three summary tables.
+TiDB** at least once after generating a player-value summary. The Vercel
+dashboard lists those saved runs; it does not download or recalculate raw
+nflverse data. Push the deployment files to GitHub, then redeploy in Vercel. The
+page shows the most recent 50 runs and lets you select a run to view the
+dashboard summaries and filter the player leaderboard.
 
 ## NFL offense mismatch notebook
 

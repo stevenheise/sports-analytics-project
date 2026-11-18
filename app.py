@@ -10,6 +10,11 @@ import streamlit as st
 from database import DatabaseConfigurationError, save_analysis_summaries
 from nfl_data import DATA_DIR, load_ftn_charting as read_ftn_charting
 from nfl_data import load_play_by_play as read_play_by_play
+from player_analysis import (
+    DEFENSIVE_POSITION_GROUPS,
+    OFFENSIVE_POSITION_GROUPS,
+    summarize_player_value,
+)
 from play_analysis import (
     summarize_defensive_turnovers_by_blitz,
     summarize_plays,
@@ -27,6 +32,135 @@ def load_play_by_play(seasons: tuple[int, ...]) -> pl.DataFrame:
 def load_ftn_charting(seasons: tuple[int, ...]) -> pl.DataFrame:
     """Read local FTN files, downloading and caching missing seasons."""
     return read_ftn_charting(seasons)
+
+
+@st.cache_data(show_spinner=False, ttl=24 * 60 * 60)
+def load_player_stats(seasons: tuple[int, ...]) -> pl.DataFrame:
+    """Load and cache regular-season leaguewide player statistics."""
+    return nfl.load_player_stats(list(seasons), summary_level="reg")
+
+
+@st.cache_data(show_spinner=False, ttl=24 * 60 * 60)
+def load_contracts() -> pl.DataFrame:
+    """Load and cache historical player contract cap hits."""
+    return nfl.load_contracts()
+
+
+def _render_player_leaderboard(
+    player_values: pl.DataFrame,
+    side: str,
+    position_groups: tuple[str, ...],
+) -> None:
+    if side == "offense":
+        metric_options = {
+            "Yards per $1M cap hit": "offensive_yards",
+            "Touchdowns per $1M cap hit": "offensive_touchdowns",
+        }
+    else:
+        metric_options = {"Takeaways per $1M cap hit": "defensive_takeaways"}
+        value_label = "Takeaways"
+
+    controls = st.columns(3)
+    position_filter = controls[0].selectbox(
+        "Position group",
+        options=["All", *position_groups],
+        key=f"{side}_position_group",
+    )
+    metric_label = controls[1].selectbox(
+        "Rank by",
+        options=list(metric_options),
+        key=f"{side}_metric",
+    )
+    if side == "offense":
+        value_label = "Yards" if metric_label.startswith("Yards") else "Touchdowns"
+    minimum_games = controls[2].selectbox(
+        "Minimum games",
+        options=[0, 8, 16, 32, 64],
+        index=2,
+        key=f"{side}_minimum_games",
+    )
+    scope = st.selectbox(
+        "Player scope",
+        options=["Entire league", "Steelers players only"],
+        key=f"{side}_scope",
+    )
+
+    metric_column = metric_options[metric_label]
+    filtered = player_values.filter(
+        pl.col("position_group").is_in(position_groups)
+        & (pl.col("cap_hit_m") > 0)
+        & (pl.col("games") >= minimum_games)
+        & (pl.col(metric_column) > 0)
+    )
+    if position_filter != "All":
+        filtered = filtered.filter(pl.col("position_group") == position_filter)
+    ranked = (
+        filtered.with_columns(
+            (pl.col(metric_column) / pl.col("cap_hit_m")).alias("per_million")
+        )
+        .with_columns(
+            pl.col("per_million")
+            .rank(method="ordinal", descending=True)
+            .over("position_group")
+            .alias("Position rank")
+        )
+        .sort(["position_group", "Position rank", "player_name"])
+    )
+    if scope == "Steelers players only":
+        ranked = ranked.filter(pl.col("is_steelers"))
+
+    if ranked.is_empty():
+        st.info("No players with matching production and cap-hit data for these filters.")
+        return
+
+    st.caption(
+        f"Top five per group · {metric_label}, ranked within each position group. Steelers players "
+        "are ranked against league peers before the optional Steelers-only filter."
+    )
+    chart_rows = ranked.filter(pl.col("Position rank") <= 5).with_columns(
+        pl.concat_str(
+            ["position_group", pl.lit(" · "), "player_name"]
+        ).alias("Player")
+    )
+    st.bar_chart(
+        chart_rows.select("Player", "per_million"),
+        x="Player",
+        y="per_million",
+        x_label="Player",
+        y_label=metric_label,
+    )
+    display = ranked.select(
+        "Position rank",
+        "player_name",
+        "team",
+        "position_group",
+        "games",
+        "seasons",
+        "cap_hit_m",
+        metric_column,
+        "is_steelers",
+    ).rename(
+        {
+            "player_name": "Player",
+            "team": "Team(s)",
+            "position_group": "Position",
+            "games": "Games",
+            "seasons": "Seasons",
+            "cap_hit_m": "Cap hit ($M)",
+            metric_column: value_label,
+            "is_steelers": "Steelers player",
+        }
+    )
+    st.dataframe(
+        display,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Cap hit ($M)": st.column_config.NumberColumn(format="$%.2f"),
+            value_label: st.column_config.NumberColumn(format="%.0f"),
+            "Steelers player": st.column_config.CheckboxColumn(),
+        },
+    )
 
 
 def main() -> None:
@@ -140,6 +274,10 @@ def main() -> None:
     if charting_seasons:
         with st.spinner("Loading FTN charting labels for screen passes…"):
             ftn = load_ftn_charting(charting_seasons)
+    with st.spinner("Loading leaguewide player stats and contract cap hits…"):
+        player_stats = load_player_stats(season_key)
+        contracts = load_contracts()
+    player_values = summarize_player_value(player_stats, contracts, list(season_key))
     summary = summarize_plays(
         pbp, list(season_key), down=selected_down, ftn=ftn
     )
@@ -160,6 +298,30 @@ def main() -> None:
     total_col, scope_col = st.columns(2)
     total_col.metric("Qualifying plays", f"{play_count:,}")
     scope_col.metric("Analysis groups", "Run / pass splits")
+
+    st.subheader("Leaguewide player production per cap dollar")
+    st.caption(
+        "Offense uses role-appropriate passing, rushing, and receiving yards or "
+        "touchdowns. Defense uses interceptions plus opponent-fumble recoveries; "
+        "forced fumbles are not counted as takeaways unless recovered. Cap hits "
+        "are summed across the selected seasons. Steelers players are identified "
+        "in the league ranking. Offensive line and special-team positions are "
+        "omitted because these sources do not provide equivalent individual "
+        "production statistics for them."
+    )
+    offense_tab, defense_tab = st.tabs(["Offense", "Defense"])
+    with offense_tab:
+        _render_player_leaderboard(
+            player_values,
+            "offense",
+            OFFENSIVE_POSITION_GROUPS,
+        )
+    with defense_tab:
+        _render_player_leaderboard(
+            player_values,
+            "defense",
+            DEFENSIVE_POSITION_GROUPS,
+        )
 
     if play_count == 0:
         st.warning("No qualifying Steelers pass or run plays match these filters.")
@@ -251,6 +413,7 @@ def main() -> None:
                     defensive_turnovers,
                     list(season_key),
                     selected_down,
+                    player_values,
                 )
         except DatabaseConfigurationError as exc:
             st.error(str(exc))

@@ -14,6 +14,27 @@ from play_analysis import (
 )
 
 
+def player_value_fixture() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "player_id": ["00-0000001"],
+            "player_name": ["Test Player"],
+            "team": ["PIT"],
+            "position_group": ["WR"],
+            "games": [10],
+            "seasons": [1],
+            "cap_hit_m": [5.0],
+            "offensive_yards": [500.0],
+            "offensive_touchdowns": [5.0],
+            "defensive_interceptions": [0.0],
+            "forced_fumbles": [0.0],
+            "fumble_recoveries": [0.0],
+            "defensive_takeaways": [0.0],
+            "is_steelers": [True],
+        }
+    )
+
+
 class SummarizePlaysTests(unittest.TestCase):
     def setUp(self) -> None:
         self.pbp = pl.DataFrame(
@@ -213,16 +234,22 @@ class SummarizePlaysTests(unittest.TestCase):
         )
 
         run_id = database.save_analysis_summaries(
-            touchdown, outcomes, defensive, [2023, 2024], down=1
+            touchdown,
+            outcomes,
+            defensive,
+            [2023, 2024],
+            down=1,
+            player_values=player_value_fixture(),
         )
 
         self.assertTrue(run_id)
-        self.assertEqual(cursor.execute.call_count, 3)
-        self.assertEqual(cursor.executemany.call_count, 3)
+        self.assertEqual(cursor.execute.call_count, 4)
+        self.assertEqual(cursor.executemany.call_count, 4)
         for saved_rows in (
             cursor.executemany.call_args_list[0].args[1],
             cursor.executemany.call_args_list[1].args[1],
             cursor.executemany.call_args_list[2].args[1],
+            cursor.executemany.call_args_list[3].args[1],
         ):
             self.assertTrue(all(row[0] == run_id for row in saved_rows))
             self.assertTrue(all(row[1] == "2023,2024" for row in saved_rows))
@@ -235,6 +262,9 @@ class SummarizePlaysTests(unittest.TestCase):
         self.assertEqual(
             cursor.executemany.call_args_list[2].args[1][0][2],
             "No charted blitzers",
+        )
+        self.assertEqual(
+            cursor.executemany.call_args_list[3].args[1][0][5], "WR"
         )
         connection.start_transaction.assert_called_once()
         connection.commit.assert_called_once()
@@ -275,7 +305,12 @@ class SummarizePlaysTests(unittest.TestCase):
 
         with self.assertRaises(mysql.connector.Error):
             database.save_analysis_summaries(
-                touchdown, outcomes, defensive, [2024], down=None
+                touchdown,
+                outcomes,
+                defensive,
+                [2024],
+                down=None,
+                player_values=player_value_fixture(),
             )
 
         connection.rollback.assert_called_once()

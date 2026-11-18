@@ -20,6 +20,7 @@ class VercelDashboardTests(unittest.TestCase):
         self.assertIn("Touchdown rate by distance to goal", page)
         self.assertIn("Win rate by turnover margin", page)
         self.assertIn("Defensive takeaways by blitz count", page)
+        self.assertIn("Player production per cap dollar", page)
         self.assertNotIn("<canvas", page)
 
     @patch("vercel.main._query_rows")
@@ -38,6 +39,7 @@ class VercelDashboardTests(unittest.TestCase):
             [{"situation": "1-5", "play_category": "Inside run"}],
             [{"turnover_margin": "Even"}],
             [{"blitz_pressure": "No charted blitzers"}],
+            [{"player_name": "Steelers player", "is_steelers": 1}],
         ]
         run_id = "81bc7640-0000-4000-8000-000000000001"
 
@@ -47,7 +49,8 @@ class VercelDashboardTests(unittest.TestCase):
         self.assertEqual(len(result["touchdown_summary"]), 1)
         self.assertEqual(len(result["turnover_outcomes"]), 1)
         self.assertEqual(len(result["defensive_turnovers"]), 1)
-        self.assertEqual(query_rows.call_count, 3)
+        self.assertEqual(len(result["player_values"]), 1)
+        self.assertEqual(query_rows.call_count, 4)
         self.assertEqual(query_rows.call_args_list[0].args[1], (run_id,))
 
     @patch("vercel.main._query_rows")

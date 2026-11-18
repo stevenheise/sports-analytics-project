@@ -171,9 +171,22 @@ def get_run(run_id: str) -> dict[str, object]:
         """,
         (canonical_run_id,),
     )
+    player_values = _query_rows(
+        """
+        SELECT player_id, player_name, team, position_group, games,
+               seasons_count AS seasons, cap_hit_m, offensive_yards,
+               offensive_touchdowns, defensive_interceptions, forced_fumbles,
+               fumble_recoveries, defensive_takeaways, is_steelers
+        FROM player_value_summaries
+        WHERE run_id = %s
+        ORDER BY player_name
+        """,
+        (canonical_run_id,),
+    )
     return {
         "run_id": canonical_run_id,
         "touchdown_summary": touchdown,
         "turnover_outcomes": turnover_outcomes,
         "defensive_turnovers": defensive_turnovers,
+        "player_values": player_values,
     }

@@ -17,6 +17,7 @@ DATABASE_NAME = "steelers_analytics"
 TABLE_NAME = "touchdown_summaries"
 TURNOVER_OUTCOMES_TABLE_NAME = "turnover_margin_outcomes"
 DEFENSIVE_TURNOVERS_TABLE_NAME = "defensive_turnovers_by_blitz"
+PLAYER_VALUES_TABLE_NAME = "player_value_summaries"
 
 CREATE_TABLE_SQL = f"""
 CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
@@ -62,6 +63,29 @@ CREATE TABLE IF NOT EXISTS {DEFENSIVE_TURNOVERS_TABLE_NAME} (
     saved_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     PRIMARY KEY (run_id, blitz_pressure),
     INDEX idx_defensive_turnovers_by_blitz_saved_at (saved_at)
+)
+"""
+CREATE_PLAYER_VALUES_TABLE_SQL = f"""
+CREATE TABLE IF NOT EXISTS {PLAYER_VALUES_TABLE_NAME} (
+    run_id CHAR(36) NOT NULL,
+    seasons VARCHAR(255) NOT NULL,
+    player_id VARCHAR(20) NOT NULL,
+    player_name VARCHAR(128) NOT NULL,
+    team VARCHAR(128) NOT NULL,
+    position_group VARCHAR(8) NOT NULL,
+    games INT UNSIGNED NOT NULL,
+    seasons_count TINYINT UNSIGNED NOT NULL,
+    cap_hit_m DECIMAL(12, 3) NOT NULL,
+    offensive_yards BIGINT UNSIGNED NOT NULL,
+    offensive_touchdowns INT UNSIGNED NOT NULL,
+    defensive_interceptions INT UNSIGNED NOT NULL,
+    forced_fumbles INT UNSIGNED NOT NULL,
+    fumble_recoveries INT UNSIGNED NOT NULL,
+    defensive_takeaways INT UNSIGNED NOT NULL,
+    is_steelers BOOLEAN NOT NULL,
+    saved_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (run_id, player_id, position_group),
+    INDEX idx_player_value_summaries_saved_at (saved_at)
 )
 """
 
@@ -181,8 +205,9 @@ def save_analysis_summaries(
     defensive_turnovers: pl.DataFrame,
     seasons: list[int],
     down: int | None,
+    player_values: pl.DataFrame,
 ) -> str:
-    """Persist all dashboard summaries together and return their shared run ID."""
+    """Persist dashboard summaries and leaguewide player values in one run."""
     connection = _connect_to_database()
     run_id = str(uuid4())
     saved_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -230,6 +255,28 @@ def save_analysis_summaries(
         )
         for row in defensive_turnovers.to_dicts()
     ]
+    player_value_rows = [
+        (
+            run_id,
+            season_selection,
+            row["player_id"],
+            row["player_name"],
+            row["team"],
+            row["position_group"],
+            row["games"],
+            row["seasons"],
+            row["cap_hit_m"],
+            row["offensive_yards"],
+            row["offensive_touchdowns"],
+            row["defensive_interceptions"],
+            row["forced_fumbles"],
+            row["fumble_recoveries"],
+            row["defensive_takeaways"],
+            row["is_steelers"],
+            saved_at,
+        )
+        for row in player_values.to_dicts()
+    ]
     inserts = [
         (
             CREATE_TABLE_SQL,
@@ -261,6 +308,18 @@ def save_analysis_summaries(
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             defensive_rows,
+        ),
+        (
+            CREATE_PLAYER_VALUES_TABLE_SQL,
+            f"""
+            INSERT INTO {PLAYER_VALUES_TABLE_NAME} (
+                run_id, seasons, player_id, player_name, team, position_group,
+                games, seasons_count, cap_hit_m, offensive_yards,
+                offensive_touchdowns, defensive_interceptions, forced_fumbles,
+                fumble_recoveries, defensive_takeaways, is_steelers, saved_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            player_value_rows,
         ),
     ]
     try:
