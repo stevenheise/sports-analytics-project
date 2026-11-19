@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
 DATABASE_NAME = "steelers_analytics"
+PLAYER_VALUES_TABLE_NAME = "player_value_summaries"
 logger = logging.getLogger(__name__)
 app = FastAPI(title="Steelers Analytics")
 
@@ -127,7 +128,7 @@ def list_runs() -> dict[str, list[dict[str, object]]]:
 
 @app.get("/api/runs/{run_id}")
 def get_run(run_id: str) -> dict[str, object]:
-    """Return all three saved summaries for one validated run ID."""
+    """Return all saved dashboard summaries for one validated run ID."""
     try:
         canonical_run_id = str(UUID(run_id))
     except ValueError as exc:
@@ -171,18 +172,29 @@ def get_run(run_id: str) -> dict[str, object]:
         """,
         (canonical_run_id,),
     )
+    player_columns = _query_rows(
+        f"SHOW COLUMNS FROM {PLAYER_VALUES_TABLE_NAME}"
+    )
+    has_qb_ratio = any(column["Field"] == "qb_td_int_ratio" for column in player_columns)
+    qb_ratio_column = (
+        "qb_td_int_ratio" if has_qb_ratio else "0 AS qb_td_int_ratio"
+    )
     player_values = _query_rows(
-        """
+        f"""
         SELECT player_id, player_name, team, position_group, games,
                seasons_count AS seasons, cap_hit_m, offensive_yards,
-               offensive_touchdowns, tackles, sacks, defensive_interceptions,
-               forced_fumbles, fumble_recoveries, defensive_takeaways,
-               is_active, is_steelers
+               offensive_touchdowns, {qb_ratio_column}, tackles, sacks,
+               defensive_interceptions, forced_fumbles, fumble_recoveries,
+               defensive_takeaways, is_active, is_steelers
         FROM player_value_summaries
         WHERE run_id = %s
         ORDER BY player_name
         """,
         (canonical_run_id,),
+    )
+    qb_ratio_available = has_qb_ratio and any(
+        row["position_group"] == "QB" and float(row["qb_td_int_ratio"]) > 0
+        for row in player_values
     )
     return {
         "run_id": canonical_run_id,
@@ -190,4 +202,5 @@ def get_run(run_id: str) -> dict[str, object]:
         "turnover_outcomes": turnover_outcomes,
         "defensive_turnovers": defensive_turnovers,
         "player_values": player_values,
+        "qb_td_int_ratio_available": qb_ratio_available,
     }

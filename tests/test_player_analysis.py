@@ -1,10 +1,12 @@
 import unittest
+from math import log
 
 import polars as pl
 
 from player_analysis import (
     current_active_player_ids,
     current_steelers_roster_ids,
+    rank_player_values,
     summarize_player_value,
 )
 
@@ -23,6 +25,7 @@ class SummarizePlayerValueTests(unittest.TestCase):
                 "rushing_yards": [100, 0, 0, 0],
                 "receiving_yards": [0, 500, 0, 25],
                 "passing_tds": [18, 0, 0, 0],
+                "passing_interceptions": [0, 0, 0, 0],
                 "rushing_tds": [2, 0, 0, 0],
                 "receiving_tds": [0, 5, 0, 0],
                 "def_interceptions": [0, 0, 2, 0],
@@ -72,6 +75,7 @@ class SummarizePlayerValueTests(unittest.TestCase):
         self.assertEqual(by_player["qb1"]["cap_hit_m"], 10.0)
         self.assertEqual(by_player["qb1"]["offensive_yards"], 2100.0)
         self.assertEqual(by_player["qb1"]["offensive_touchdowns"], 20.0)
+        self.assertEqual(by_player["qb1"]["qb_td_int_ratio"], 19.0)
         self.assertEqual(by_player["wr1"]["offensive_yards"], 500.0)
         self.assertFalse(by_player["wr1"]["is_steelers"])
         self.assertEqual(by_player["db1"]["defensive_takeaways"], 3.0)
@@ -99,6 +103,34 @@ class SummarizePlayerValueTests(unittest.TestCase):
         self.assertEqual(
             current_active_player_ids(rosters),
             {"current", "other"},
+        )
+
+    def test_ranks_qbs_by_smoothed_td_int_and_logarithmic_cap_hit(self) -> None:
+        players = summarize_player_value(
+            self.stats,
+            self.contracts,
+            [2024],
+            current_active_ids={"qb1", "db1"},
+        )
+
+        ranked = rank_player_values(
+            players,
+            ("QB", "WR"),
+            "offensive_touchdowns",
+            0,
+            "Entire league",
+        )
+        by_player = {row["player_id"]: row for row in ranked.to_dicts()}
+
+        self.assertEqual(by_player["qb1"]["Rank production"], 19.0)
+        self.assertAlmostEqual(
+            by_player["qb1"]["Rank score"],
+            19.0 / log(10_000_000),
+        )
+        self.assertEqual(by_player["wr1"]["Rank production"], 5.0)
+        self.assertAlmostEqual(
+            by_player["wr1"]["Rank score"],
+            5.0 / log(5_000_000),
         )
 
     def test_empty_seasons_returns_typed_empty_frame(self) -> None:

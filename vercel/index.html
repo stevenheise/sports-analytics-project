@@ -127,11 +127,29 @@
       .numeric { text-align: right; font-variant-numeric: tabular-nums; }
       .empty { color: #666; text-align: center; padding: 1.2rem; }
       .footnote { margin: 1rem .15rem 0; color: #5b5b5b; font-size: .82rem; line-height: 1.5; }
-
-      @media (min-width: 900px) {
-        .panels { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
-        .panel:first-child { grid-column: 1 / -1; }
+      .page-nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: .45rem;
+        margin: 1rem 0;
       }
+      .page-nav a {
+        border: 1px solid #c8c8c8;
+        border-radius: 999px;
+        padding: .55rem .9rem;
+        color: #171717;
+        background: #fff;
+        font-size: .88rem;
+        font-weight: 700;
+        text-decoration: none;
+      }
+      .page-nav a[aria-current="page"] {
+        border-color: #101010;
+        color: #fff;
+        background: #101010;
+      }
+      .page { display: none; }
+      .page.active { display: block; }
 
       @media (max-width: 640px) {
         .player-controls { grid-template-columns: 1fr; }
@@ -144,7 +162,7 @@
       <div class="hero-inner">
         <p class="eyebrow">Pittsburgh Steelers · Data dashboard</p>
         <h1>Steelers Analytics</h1>
-        <p class="subtitle">Compare player production and cap hits across the league, including Pittsburgh.</p>
+        <p class="subtitle">Player value, scoring, and turnover analysis for Pittsburgh.</p>
       </div>
     </header>
     <main>
@@ -159,11 +177,32 @@
         <p id="status" role="status" aria-live="polite">Connecting to TiDB…</p>
       </section>
 
-      <div class="panels">
+      <nav class="page-nav" aria-label="Dashboard pages">
+        <a href="#overview" data-page-link="overview">Overview</a>
+        <a href="#players" data-page-link="players">Player Value</a>
+        <a href="#touchdowns" data-page-link="touchdowns">Touchdown Rate</a>
+        <a href="#turnovers" data-page-link="turnovers">Turnover Margin</a>
+        <a href="#defense" data-page-link="defense">Defense by Blitz</a>
+      </nav>
+
+      <section class="page active" id="overview-page">
+        <div class="panel">
+          <div class="panel-heading">
+            <h2>Analysis overview</h2>
+            <p class="description">Choose a page above to explore each analysis separately. The selected saved run is shared across all pages.</p>
+          </div>
+          <div class="panel-heading">
+            <p id="run-summary" class="description">Select a saved run to begin.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="players-page">
+        <div class="panels">
         <section class="panel">
           <div class="panel-heading">
-            <h2>Player production per cap dollar</h2>
-            <p class="description">Leaguewide player rankings with current Steelers roster players marked and ranked against their position peers.</p>
+            <h2>Player value leaderboard</h2>
+            <p class="description">Rank score = selected production / ln(cap hit in actual dollars). Quarterbacks use a smoothed passing TD/INT ratio instead of raw touchdowns.</p>
           </div>
           <div class="player-controls" aria-label="Player value filters">
             <label for="player-side">Side of ball
@@ -194,11 +233,11 @@
             <label for="player-metric" id="player-metric-label">Production
               <select id="player-metric">
                 <option value="offensive_yards">Yards</option>
-                <option value="offensive_touchdowns">Touchdowns</option>
+                <option value="offensive_touchdowns">TDs (QB: TD/INT ratio)</option>
               </select>
             </label>
           </div>
-          <div class="player-list" id="player-bars" aria-label="Top players by production per cap dollar"></div>
+          <div class="player-list" id="player-bars" aria-label="Top players by production divided by logarithmic cap hit"></div>
           <div class="table-wrap" id="player-value-table"></div>
           <p class="footnote" id="player-value-note">
             Offense assigns passing and rushing stats to QBs, rushing and receiving
@@ -206,13 +245,17 @@
             tackles and sacks. Steelers-only results use the latest roster saved
             with this run. Defense counts interceptions and
             opponent-fumble recoveries as takeaways; forced fumbles are shown separately.
-            Cap hits are summed over the selected seasons. Efficiency is ranked
+            Cap hits are summed over the selected seasons. Scores are ranked
             within position group, not across positions. Offensive line and
             special-team players are omitted because these sources do not provide
             equivalent individual production statistics for them.
           </p>
         </section>
+        </div>
+      </section>
 
+      <section class="page" id="touchdowns-page">
+        <div class="panels">
         <section class="panel">
           <div class="panel-heading">
             <h2>Touchdown rate by distance to goal</h2>
@@ -220,7 +263,11 @@
           </div>
           <div class="table-wrap" id="touchdown-table"></div>
         </section>
+        </div>
+      </section>
 
+      <section class="page" id="turnovers-page">
+        <div class="panels">
         <section class="panel">
           <div class="panel-heading">
             <h2>Win rate by turnover margin</h2>
@@ -228,7 +275,11 @@
           </div>
           <div class="table-wrap" id="turnover-table"></div>
         </section>
+        </div>
+      </section>
 
+      <section class="page" id="defense-page">
+        <div class="panels">
         <section class="panel">
           <div class="panel-heading">
             <h2>Defensive takeaways by blitz count</h2>
@@ -236,7 +287,8 @@
           </div>
           <div class="table-wrap" id="defense-table"></div>
         </section>
-      </div>
+        </div>
+      </section>
       <p class="footnote">
         These are descriptive summaries, not causal estimates. Blitz-count data is
         limited to charted plays and does not identify man/zone coverage, blitzer
@@ -254,7 +306,37 @@
       const playerMetric = document.querySelector("#player-metric");
       const playerBars = document.querySelector("#player-bars");
       const playerValueTable = document.querySelector("#player-value-table");
+      const runSummary = document.querySelector("#run-summary");
+      const pageLinks = [...document.querySelectorAll("[data-page-link]")];
+      const pageIds = {
+        overview: "overview-page",
+        players: "players-page",
+        touchdowns: "touchdowns-page",
+        turnovers: "turnovers-page",
+        defense: "defense-page",
+      };
       let savedPlayerValues = [];
+
+      function showPage() {
+        const page = window.location.hash.slice(1) || "overview";
+        const activePage = Object.prototype.hasOwnProperty.call(pageIds, page) ? page : "overview";
+        for (const [name, id] of Object.entries(pageIds)) {
+          document.getElementById(id).classList.toggle("active", name === activePage);
+        }
+        for (const link of pageLinks) {
+          if (link.dataset.pageLink === activePage) {
+            link.setAttribute("aria-current", "page");
+          } else {
+            link.removeAttribute("aria-current");
+          }
+        }
+      }
+
+      function productionValue(record, metric) {
+        return metric === "offensive_touchdowns" && record.position_group === "QB"
+          ? Number(record.qb_td_int_ratio || 0)
+          : Number(record[metric] || 0);
+      }
 
       function populatePlayerFilters() {
         const isOffense = playerSide.value === "offense";
@@ -268,7 +350,7 @@
         }
         playerMetric.replaceChildren();
         const metrics = isOffense
-          ? [["offensive_yards", "Yards"], ["offensive_touchdowns", "Touchdowns"]]
+          ? [["offensive_yards", "Yards"], ["offensive_touchdowns", "Touchdowns (QB: TD/INT ratio)"]]
           : [["tackles", "Tackles"], ["sacks", "Sacks"], ["defensive_takeaways", "Takeaways"]];
         for (const [value, label] of metrics) {
           const option = document.createElement("option");
@@ -286,13 +368,14 @@
         const metric = playerMetric.value;
         const candidates = rows
           .filter((record) => groups.includes(record.position_group)
-            && Number(record.cap_hit_m) > 0
+            && Number(record.cap_hit_m) * 1_000_000 > 1
             && Number(record.games) >= Number(playerMinGames.value)
             && (playerScope.value !== "active" || Boolean(Number(record.is_active)))
-            && Number(record[metric] || 0) > 0)
+            && productionValue(record, metric) > 0)
           .map((record) => ({
             ...record,
-            efficiency: Number(record[metric] || 0) / Number(record.cap_hit_m),
+            production: productionValue(record, metric),
+            score: productionValue(record, metric) / Math.log(Number(record.cap_hit_m) * 1_000_000),
           }));
         const grouped = new Map();
         for (const record of candidates) {
@@ -302,7 +385,7 @@
         const ranked = [];
         for (const group of groups) {
           const groupRows = (grouped.get(group) || []).sort((left, right) =>
-            right.efficiency - left.efficiency || Number(right.games) - Number(left.games)
+            right.score - left.score || Number(right.games) - Number(left.games)
           );
           groupRows.forEach((record, index) => ranked.push({ ...record, position_rank: index + 1 }));
         }
@@ -322,7 +405,7 @@
           playerBars.textContent = "No players with matching production and cap-hit data.";
           return;
         }
-        const maxValue = Math.max(...leaders.map((record) => record.efficiency), 0);
+        const maxValue = Math.max(...leaders.map((record) => record.score), 0);
         for (const record of leaders) {
           const row = document.createElement("div");
           row.className = `player-bar-row${Boolean(Number(record.is_steelers)) ? " steelers" : ""}`;
@@ -333,29 +416,29 @@
           track.className = "player-bar-track";
           const bar = document.createElement("span");
           bar.className = "player-bar";
-          bar.style.width = `${maxValue ? record.efficiency / maxValue * 100 : 0}%`;
+          bar.style.width = `${maxValue ? record.score / maxValue * 100 : 0}%`;
           track.append(bar);
           const value = document.createElement("span");
           value.className = "numeric";
-          value.textContent = `${record.efficiency.toFixed(1)} / $1M`;
+          value.textContent = record.score.toFixed(3);
           row.append(name, track, value);
           playerBars.append(row);
         }
         const labels = {
           offensive_yards: "Yards",
-          offensive_touchdowns: "Touchdowns",
+          offensive_touchdowns: "Touchdowns (QB: TD/INT ratio)",
           tackles: "Tackles",
           sacks: "Sacks",
           defensive_takeaways: "Takeaways",
         };
         const label = labels[metric] || "Production";
-        playerBars.setAttribute("aria-label", `Top five by ${label} per one million dollars, within position group`);
+        playerBars.setAttribute("aria-label", `Top five by ${label} divided by the natural log of cap hit in dollars, within position group`);
       }
 
       function renderPlayerTable(rows, metric) {
         playerValueTable.replaceChildren();
         const table = document.createElement("table");
-        const headings = ["Rank", "Player", "Team(s)", "Pos.", "Games", "Cap hit ($M)", "Production", "Per $1M"];
+        const headings = ["Rank", "Player", "Team(s)", "Pos.", "Games", "Cap hit ($M)", "Production", "Score"];
         const header = document.createElement("thead");
         const headerRow = document.createElement("tr");
         for (const heading of headings) {
@@ -376,8 +459,8 @@
             record.position_group,
             Number(record.games).toLocaleString(),
             Number(record.cap_hit_m).toFixed(2),
-            Number(record[metric] || 0).toLocaleString(),
-            record.efficiency.toFixed(1),
+            new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(record.production),
+            record.score.toFixed(3),
           ];
           values.forEach((value, index) => {
             const cell = document.createElement("td");
@@ -493,6 +576,9 @@
           renderTable("turnover-table", payload.turnover_outcomes);
           renderTable("defense-table", payload.defensive_turnovers);
           renderPlayerValues(payload.player_values);
+          runSummary.textContent = payload.qb_td_int_ratio_available
+            ? `Selected saved analysis: ${runSelect.selectedOptions[0].textContent}`
+            : `Selected saved analysis: ${runSelect.selectedOptions[0].textContent}. QB TD/INT ratios are unavailable in this older run; save a new run from the local app to enable them.`;
           setStatus(`Showing run ${payload.run_id}`, "success");
         } catch (error) {
           setStatus(error.message, "error");
@@ -535,12 +621,15 @@
 
       runSelect.addEventListener("change", () => loadRun(runSelect.value));
       document.querySelector("#refresh").addEventListener("click", loadRuns);
+      window.addEventListener("hashchange", showPage);
       playerSide.addEventListener("change", populatePlayerFilters);
       playerPosition.addEventListener("change", () => renderPlayerValues(savedPlayerValues));
       playerScope.addEventListener("change", () => renderPlayerValues(savedPlayerValues));
       playerMinGames.addEventListener("change", () => renderPlayerValues(savedPlayerValues));
       playerMetric.addEventListener("change", () => renderPlayerValues(savedPlayerValues));
       populatePlayerFilters();
+      if (!window.location.hash) window.history.replaceState(null, "", "#overview");
+      showPage();
       loadRuns();
     </script>
   </body>

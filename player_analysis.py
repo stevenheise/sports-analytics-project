@@ -17,6 +17,7 @@ PLAYER_VALUE_SCHEMA = {
     "cap_hit_m": pl.Float64,
     "offensive_yards": pl.Float64,
     "offensive_touchdowns": pl.Float64,
+    "qb_td_int_ratio": pl.Float64,
     "tackles": pl.Float64,
     "sacks": pl.Float64,
     "defensive_interceptions": pl.Float64,
@@ -98,6 +99,7 @@ def summarize_player_value(
         "rushing_yards",
         "receiving_yards",
         "passing_tds",
+        "passing_interceptions",
         "rushing_tds",
         "receiving_tds",
         "def_interceptions",
@@ -163,6 +165,7 @@ def summarize_player_value(
         pl.col("rushing_yards").fill_null(0).cast(pl.Float64),
         pl.col("receiving_yards").fill_null(0).cast(pl.Float64),
         pl.col("passing_tds").fill_null(0).cast(pl.Float64),
+        pl.col("passing_interceptions").fill_null(0).cast(pl.Float64),
         pl.col("rushing_tds").fill_null(0).cast(pl.Float64),
         pl.col("receiving_tds").fill_null(0).cast(pl.Float64),
         pl.col("def_interceptions").fill_null(0).cast(pl.Float64),
@@ -205,6 +208,8 @@ def summarize_player_value(
         pl.col("games").sum(),
         pl.col("offensive_yards").sum(),
         pl.col("offensive_touchdowns").sum(),
+        pl.col("passing_tds").sum().alias("qb_passing_tds"),
+        pl.col("passing_interceptions").sum().alias("qb_passing_interceptions"),
         pl.col("tackles").sum(),
         pl.col("def_sacks").sum().alias("sacks"),
         pl.col("def_interceptions").sum().alias("defensive_interceptions"),
@@ -237,6 +242,8 @@ def summarize_player_value(
             pl.col("cap_hit_m").sum(),
             pl.col("offensive_yards").sum(),
             pl.col("offensive_touchdowns").sum(),
+            pl.col("qb_passing_tds").sum(),
+            pl.col("qb_passing_interceptions").sum(),
             pl.col("tackles").sum(),
             pl.col("sacks").sum(),
             pl.col("defensive_interceptions").sum(),
@@ -246,6 +253,61 @@ def summarize_player_value(
             pl.col("is_active").any(),
             pl.col("is_steelers").any(),
         )
+        .with_columns(
+            (
+                (pl.col("qb_passing_tds") + 1)
+                / (pl.col("qb_passing_interceptions") + 1)
+            ).alias("qb_td_int_ratio")
+        )
         .select(list(PLAYER_VALUE_SCHEMA))
         .sort(["position_group", "player_name"])
     )
+
+
+def rank_player_values(
+    player_values: pl.DataFrame,
+    position_groups: tuple[str, ...],
+    metric_column: str,
+    minimum_games: int,
+    scope: str,
+    position_filter: str = "All",
+) -> pl.DataFrame:
+    """Rank production against the natural log of cap hit in actual dollars."""
+    filtered = player_values.filter(
+        pl.col("position_group").is_in(position_groups)
+        & (pl.col("cap_hit_m") * 1_000_000 > 1)
+        & (pl.col("games") >= minimum_games)
+    )
+    if scope == "Currently active players":
+        filtered = filtered.filter(pl.col("is_active"))
+    if position_filter != "All":
+        filtered = filtered.filter(pl.col("position_group") == position_filter)
+
+    rank_production = pl.col(metric_column)
+    if metric_column == "offensive_touchdowns":
+        rank_production = (
+            pl.when(pl.col("position_group") == "QB")
+            .then(pl.col("qb_td_int_ratio"))
+            .otherwise(pl.col(metric_column))
+        )
+
+    ranked = (
+        filtered.with_columns(rank_production.alias("Rank production"))
+        .filter(pl.col("Rank production") > 0)
+        .with_columns(
+            (
+                pl.col("Rank production")
+                / (pl.col("cap_hit_m") * 1_000_000).log()
+            ).alias("Rank score")
+        )
+        .with_columns(
+            pl.col("Rank score")
+            .rank(method="ordinal", descending=True)
+            .over("position_group")
+            .alias("Position rank")
+        )
+        .sort(["position_group", "Position rank", "player_name"])
+    )
+    if scope == "Steelers players only":
+        ranked = ranked.filter(pl.col("is_steelers"))
+    return ranked

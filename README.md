@@ -19,17 +19,20 @@ summaries as tables.
 
 The player-value view compares leaguewide player production with annual cap
 hits across the selected seasons. Offense ranks QBs by passing plus rushing
-yards/touchdowns, RBs by rushing plus receiving, and WRs/TEs by receiving.
+yards or a smoothed passing TD/INT ratio, RBs by rushing plus receiving yards or
+touchdowns, and WRs/TEs by receiving yards or touchdowns. The QB ratio is
+`(passing TDs + 1) / (passing INTs + 1)`.
 Defense ranks DBs, DLs, and LBs by interceptions plus opponent-fumble recoveries;
-forced fumbles are shown separately. Efficiency is production per $1 million of
-cap hit and is ranked only within the same position group. The default minimum
-is 16 games to reduce tiny-sample spikes. Steelers players are marked in the
+forced fumbles are shown separately. Rank score is selected production divided
+by the natural logarithm of cap hit in actual dollars. Rankings are within the
+same position group. The default minimum is 16 games to reduce tiny-sample
+spikes. Steelers players are marked in the
 leaguewide rankings and can be filtered. Offensive line and special-teams
 positions are not scored because the source does not provide equivalent
 individual production measures for those groups. This is a descriptive cap-hit
 comparison, not a complete measure of player value.
-The defensive leaderboard can also rank tackles and sacks per $1 million of cap
-hit. The Steelers-only filter and Steelers markers use players on the latest
+The defensive leaderboard can also rank tackles and sacks. The Steelers-only
+filter and Steelers markers use players on the latest
 listed Pittsburgh roster (active, reserve, or practice squad) when the summary
 is generated, not everyone who appeared on a past Steelers roster.
 The leaderboard also offers a currently active players scope across the league,
@@ -93,7 +96,7 @@ python -m unittest discover -s tests -v
 
 ### Save summaries to TiDB
 
-Click **Save all summaries to TiDB** in the app to write all three dashboard
+Click **Save all summaries to TiDB** on the Overview page to write all dashboard
 summaries for the selected seasons. The touchdown table also records the selected
 down filter. One shared run ID links the rows saved by a single click:
 
@@ -159,8 +162,11 @@ Before deploying, run the local Streamlit app and click **Save all summaries to
 TiDB** at least once after generating a player-value summary. The Vercel
 dashboard lists those saved runs; it does not download or recalculate raw
 nflverse data. Push the deployment files to GitHub, then redeploy in Vercel. The
-page shows the most recent 50 runs and lets you select a run to view the
-dashboard summaries and filter the player leaderboard.
+website separates overview, player-value, touchdown-rate, turnover-margin, and
+defensive-blitz summaries into navigable pages. The selected saved run is shared
+across pages; the website shows the most recent 50 runs and lets you filter the
+player leaderboard. Older runs remain viewable, but QB TD/INT rankings require a
+new run saved after the ratio field is added to the player summary table.
 
 ## NFL offense mismatch notebook
 

@@ -20,10 +20,16 @@ class VercelDashboardTests(unittest.TestCase):
         self.assertIn("Touchdown rate by distance to goal", page)
         self.assertIn("Win rate by turnover margin", page)
         self.assertIn("Defensive takeaways by blitz count", page)
-        self.assertIn("Player production per cap dollar", page)
+        self.assertIn("Player value leaderboard", page)
         self.assertIn('["tackles", "Tackles"]', page)
         self.assertIn('["sacks", "Sacks"]', page)
         self.assertIn('value="active">Currently active players', page)
+        self.assertIn('data-page-link="players"', page)
+        self.assertIn('id="touchdowns-page"', page)
+        self.assertIn('id="turnovers-page"', page)
+        self.assertIn('id="defense-page"', page)
+        self.assertIn("Math.log(Number(record.cap_hit_m) * 1_000_000)", page)
+        self.assertIn("older run; save a new run", page)
         self.assertNotIn("<canvas", page)
 
     @patch("vercel.main._query_rows")
@@ -42,7 +48,14 @@ class VercelDashboardTests(unittest.TestCase):
             [{"situation": "1-5", "play_category": "Inside run"}],
             [{"turnover_margin": "Even"}],
             [{"blitz_pressure": "No charted blitzers"}],
-            [{"player_name": "Steelers player", "is_active": 1, "is_steelers": 1}],
+            [{"Field": "qb_td_int_ratio"}],
+            [{
+                "player_name": "Steelers player",
+                "position_group": "QB",
+                "qb_td_int_ratio": 2.0,
+                "is_active": 1,
+                "is_steelers": 1,
+            }],
         ]
         run_id = "81bc7640-0000-4000-8000-000000000001"
 
@@ -53,10 +66,49 @@ class VercelDashboardTests(unittest.TestCase):
         self.assertEqual(len(result["turnover_outcomes"]), 1)
         self.assertEqual(len(result["defensive_turnovers"]), 1)
         self.assertEqual(len(result["player_values"]), 1)
-        self.assertEqual(query_rows.call_count, 4)
+        self.assertTrue(result["qb_td_int_ratio_available"])
+        self.assertEqual(query_rows.call_count, 5)
         self.assertEqual(query_rows.call_args_list[0].args[1], (run_id,))
-        self.assertIn("tackles, sacks", query_rows.call_args_list[3].args[0])
-        self.assertIn("is_active, is_steelers", query_rows.call_args_list[3].args[0])
+        self.assertIn("SHOW COLUMNS", query_rows.call_args_list[3].args[0])
+        self.assertIn("qb_td_int_ratio", query_rows.call_args_list[4].args[0])
+        self.assertIn("tackles, sacks", query_rows.call_args_list[4].args[0])
+
+    @patch("vercel.main._query_rows")
+    def test_get_run_supports_saved_runs_before_qb_ratio_migration(
+        self, query_rows
+    ) -> None:
+        query_rows.side_effect = [
+            [{"situation": "1-5"}],
+            [],
+            [],
+            [{"Field": "offensive_touchdowns"}],
+            [],
+        ]
+
+        result = get_run("81bc7640-0000-4000-8000-000000000001")
+
+        self.assertFalse(result["qb_td_int_ratio_available"])
+        self.assertIn(
+            "0 AS qb_td_int_ratio",
+            query_rows.call_args_list[4].args[0],
+        )
+        self.assertIn("is_active, is_steelers", query_rows.call_args_list[4].args[0])
+
+    @patch("vercel.main._query_rows")
+    def test_get_run_flags_older_rows_after_qb_ratio_migration(
+        self, query_rows
+    ) -> None:
+        query_rows.side_effect = [
+            [{"situation": "1-5"}],
+            [],
+            [],
+            [{"Field": "qb_td_int_ratio"}],
+            [{"position_group": "QB", "qb_td_int_ratio": 0}],
+        ]
+
+        result = get_run("81bc7640-0000-4000-8000-000000000001")
+
+        self.assertFalse(result["qb_td_int_ratio_available"])
 
     @patch("vercel.main._query_rows")
     def test_get_run_rejects_invalid_id_without_querying_database(self, query_rows) -> None:

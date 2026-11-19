@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS {PLAYER_VALUES_TABLE_NAME} (
     cap_hit_m DECIMAL(12, 3) NOT NULL,
     offensive_yards BIGINT NOT NULL,
     offensive_touchdowns INT UNSIGNED NOT NULL,
+    qb_td_int_ratio DECIMAL(12, 4) NOT NULL,
     tackles BIGINT UNSIGNED NOT NULL,
     sacks BIGINT UNSIGNED NOT NULL,
     defensive_interceptions INT UNSIGNED NOT NULL,
@@ -271,6 +272,7 @@ def save_analysis_summaries(
             row["cap_hit_m"],
             row["offensive_yards"],
             row["offensive_touchdowns"],
+            row["qb_td_int_ratio"],
             row["tackles"],
             row["sacks"],
             row["defensive_interceptions"],
@@ -321,10 +323,10 @@ def save_analysis_summaries(
             INSERT INTO {PLAYER_VALUES_TABLE_NAME} (
                 run_id, seasons, player_id, player_name, team, position_group,
                 games, seasons_count, cap_hit_m, offensive_yards,
-                offensive_touchdowns, tackles, sacks, defensive_interceptions,
+                offensive_touchdowns, qb_td_int_ratio, tackles, sacks, defensive_interceptions,
                 forced_fumbles, fumble_recoveries, defensive_takeaways,
                 is_active, is_steelers, saved_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             player_value_rows,
         ),
@@ -334,10 +336,14 @@ def save_analysis_summaries(
             for create_sql, _, _ in inserts:
                 cursor.execute(create_sql)
             cursor.execute(f"SHOW COLUMNS FROM {PLAYER_VALUES_TABLE_NAME}")
-            existing_columns = {
-                column[0] for column in cursor.fetchall()
-            }
+            existing_columns: set[str] = set()
+            for column in cursor.fetchall():
+                if isinstance(column, dict):
+                    existing_columns.add(str(column["Field"]))
+                else:
+                    existing_columns.add(str(column[0]))
             for column_name, column_definition in (
+                ("qb_td_int_ratio", "DECIMAL(12, 4) NOT NULL DEFAULT 0"),
                 ("tackles", "BIGINT UNSIGNED NOT NULL DEFAULT 0"),
                 ("sacks", "BIGINT UNSIGNED NOT NULL DEFAULT 0"),
                 ("is_active", "BOOLEAN NOT NULL DEFAULT FALSE"),
