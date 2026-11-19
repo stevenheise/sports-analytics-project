@@ -23,8 +23,31 @@ PLAYER_VALUE_SCHEMA = {
     "forced_fumbles": pl.Float64,
     "fumble_recoveries": pl.Float64,
     "defensive_takeaways": pl.Float64,
+    "is_active": pl.Boolean,
     "is_steelers": pl.Boolean,
 }
+
+
+def current_active_player_ids(rosters: pl.DataFrame) -> set[str]:
+    """Return player IDs listed as active on the latest roster week."""
+    required_columns = {"week", "status", "gsis_id"}
+    missing_columns = sorted(required_columns - set(rosters.columns))
+    if missing_columns:
+        raise ValueError(f"rosters are missing required columns: {missing_columns}")
+    if rosters.is_empty():
+        raise ValueError("the current-season roster data is empty")
+
+    latest_week = rosters.get_column("week").max()
+    return set(
+        rosters.filter(
+            (pl.col("week") == latest_week)
+            & (pl.col("status") == "ACT")
+            & pl.col("gsis_id").is_not_null()
+        )
+        .get_column("gsis_id")
+        .cast(pl.String)
+        .to_list()
+    )
 
 
 def current_steelers_roster_ids(rosters: pl.DataFrame) -> set[str]:
@@ -55,6 +78,7 @@ def summarize_player_value(
     contracts: pl.DataFrame,
     seasons: list[int],
     current_steelers_ids: set[str] | None = None,
+    current_active_ids: set[str] | None = None,
 ) -> pl.DataFrame:
     """Aggregate player production and cap hits for the selected seasons.
 
@@ -195,7 +219,10 @@ def summarize_player_value(
     ).filter(pl.col("cap_hit_m") > 0).with_columns(
         pl.col("player_id")
         .is_in(sorted(current_steelers_ids or set()))
-        .alias("is_steelers")
+        .alias("is_steelers"),
+        pl.col("player_id")
+        .is_in(sorted(current_active_ids or set()))
+        .alias("is_active"),
     )
     if not valued.height:
         return pl.DataFrame(schema=PLAYER_VALUE_SCHEMA)
@@ -216,6 +243,7 @@ def summarize_player_value(
             pl.col("forced_fumbles").sum(),
             pl.col("fumble_recoveries").sum(),
             pl.col("defensive_takeaways").sum(),
+            pl.col("is_active").any(),
             pl.col("is_steelers").any(),
         )
         .select(list(PLAYER_VALUE_SCHEMA))

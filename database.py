@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS {PLAYER_VALUES_TABLE_NAME} (
     forced_fumbles INT UNSIGNED NOT NULL,
     fumble_recoveries INT UNSIGNED NOT NULL,
     defensive_takeaways INT UNSIGNED NOT NULL,
+    is_active BOOLEAN NOT NULL,
     is_steelers BOOLEAN NOT NULL,
     saved_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     PRIMARY KEY (run_id, player_id, position_group),
@@ -276,6 +277,7 @@ def save_analysis_summaries(
             row["forced_fumbles"],
             row["fumble_recoveries"],
             row["defensive_takeaways"],
+            row["is_active"],
             row["is_steelers"],
             saved_at,
         )
@@ -321,8 +323,8 @@ def save_analysis_summaries(
                 games, seasons_count, cap_hit_m, offensive_yards,
                 offensive_touchdowns, tackles, sacks, defensive_interceptions,
                 forced_fumbles, fumble_recoveries, defensive_takeaways,
-                is_steelers, saved_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                is_active, is_steelers, saved_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             player_value_rows,
         ),
@@ -335,11 +337,15 @@ def save_analysis_summaries(
             existing_columns = {
                 column[0] for column in cursor.fetchall()
             }
-            for column_name in ("tackles", "sacks"):
+            for column_name, column_definition in (
+                ("tackles", "BIGINT UNSIGNED NOT NULL DEFAULT 0"),
+                ("sacks", "BIGINT UNSIGNED NOT NULL DEFAULT 0"),
+                ("is_active", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ):
                 if column_name not in existing_columns:
                     cursor.execute(
                         f"ALTER TABLE {PLAYER_VALUES_TABLE_NAME} "
-                        f"ADD COLUMN {column_name} BIGINT UNSIGNED NOT NULL DEFAULT 0"
+                        f"ADD COLUMN {column_name} {column_definition}"
                     )
             cursor.execute(
                 f"ALTER TABLE {PLAYER_VALUES_TABLE_NAME} "

@@ -32,6 +32,9 @@ The defensive leaderboard can also rank tackles and sacks per $1 million of cap
 hit. The Steelers-only filter and Steelers markers use players on the latest
 listed Pittsburgh roster (active, reserve, or practice squad) when the summary
 is generated, not everyone who appeared on a past Steelers roster.
+The leaderboard also offers a currently active players scope across the league,
+using players listed as active on the latest roster week when the run is saved.
+Production still covers the selected historical seasons.
 
 The defensive takeaways table compares interceptions and sack-fumbles forced
 per opposing pass play by FTN's charted blitzer count (none, one, or two-plus).

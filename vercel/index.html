@@ -178,6 +178,7 @@
             <label for="player-scope">Players
               <select id="player-scope">
                 <option value="league">Entire league</option>
+                <option value="active">Currently active players</option>
                 <option value="steelers">Steelers players only</option>
               </select>
             </label>
@@ -287,6 +288,7 @@
           .filter((record) => groups.includes(record.position_group)
             && Number(record.cap_hit_m) > 0
             && Number(record.games) >= Number(playerMinGames.value)
+            && (playerScope.value !== "active" || Boolean(Number(record.is_active)))
             && Number(record[metric] || 0) > 0)
           .map((record) => ({
             ...record,

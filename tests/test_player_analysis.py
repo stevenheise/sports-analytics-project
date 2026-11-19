@@ -3,6 +3,7 @@ import unittest
 import polars as pl
 
 from player_analysis import (
+    current_active_player_ids,
     current_steelers_roster_ids,
     summarize_player_value,
 )
@@ -63,6 +64,7 @@ class SummarizePlayerValueTests(unittest.TestCase):
             self.contracts,
             [2024],
             current_steelers_ids={"db1"},
+            current_active_ids={"qb1", "db1"},
         )
         by_player = {row["player_id"]: row for row in result.to_dicts()}
 
@@ -77,6 +79,8 @@ class SummarizePlayerValueTests(unittest.TestCase):
         self.assertEqual(by_player["db1"]["tackles"], 15.0)
         self.assertEqual(by_player["db1"]["sacks"], 3.0)
         self.assertTrue(by_player["db1"]["is_steelers"])
+        self.assertTrue(by_player["qb1"]["is_active"])
+        self.assertFalse(by_player["wr1"]["is_active"])
 
     def test_current_steelers_roster_uses_latest_week_and_roster_statuses(self) -> None:
         rosters = pl.DataFrame(
@@ -91,6 +95,10 @@ class SummarizePlayerValueTests(unittest.TestCase):
         self.assertEqual(
             current_steelers_roster_ids(rosters),
             {"current", "reserve"},
+        )
+        self.assertEqual(
+            current_active_player_ids(rosters),
+            {"current", "other"},
         )
 
     def test_empty_seasons_returns_typed_empty_frame(self) -> None:

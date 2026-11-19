@@ -32,6 +32,7 @@ def player_value_fixture() -> pl.DataFrame:
             "forced_fumbles": [0.0],
             "fumble_recoveries": [0.0],
             "defensive_takeaways": [0.0],
+            "is_active": [False],
             "is_steelers": [True],
         }
     )
@@ -246,7 +247,7 @@ class SummarizePlaysTests(unittest.TestCase):
         )
 
         self.assertTrue(run_id)
-        self.assertEqual(cursor.execute.call_count, 8)
+        self.assertEqual(cursor.execute.call_count, 9)
         self.assertIn(
             "ADD COLUMN tackles",
             cursor.execute.call_args_list[5].args[0],
@@ -254,6 +255,10 @@ class SummarizePlaysTests(unittest.TestCase):
         self.assertIn(
             "ADD COLUMN sacks",
             cursor.execute.call_args_list[6].args[0],
+        )
+        self.assertIn(
+            "ADD COLUMN is_active",
+            cursor.execute.call_args_list[7].args[0],
         )
         self.assertIn(
             "ALTER TABLE player_value_summaries",
@@ -285,6 +290,10 @@ class SummarizePlaysTests(unittest.TestCase):
         self.assertEqual(
             cursor.executemany.call_args_list[3].args[1][0][10:13],
             (5.0, 0.0, 0.0),
+        )
+        self.assertEqual(
+            cursor.executemany.call_args_list[3].args[1][0][17:19],
+            (False, True),
         )
         connection.start_transaction.assert_called_once()
         connection.commit.assert_called_once()

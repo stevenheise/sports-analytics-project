@@ -13,6 +13,7 @@ from nfl_data import load_play_by_play as read_play_by_play
 from player_analysis import (
     DEFENSIVE_POSITION_GROUPS,
     OFFENSIVE_POSITION_GROUPS,
+    current_active_player_ids,
     current_steelers_roster_ids,
     summarize_player_value,
 )
@@ -93,7 +94,11 @@ def _render_player_leaderboard(
     )
     scope = st.selectbox(
         "Player scope",
-        options=["Entire league", "Steelers players only"],
+        options=[
+            "Entire league",
+            "Currently active players",
+            "Steelers players only",
+        ],
         key=f"{side}_scope",
     )
 
@@ -104,6 +109,8 @@ def _render_player_leaderboard(
         & (pl.col("games") >= minimum_games)
         & (pl.col(metric_column) > 0)
     )
+    if scope == "Currently active players":
+        filtered = filtered.filter(pl.col("is_active"))
     if position_filter != "All":
         filtered = filtered.filter(pl.col("position_group") == position_filter)
     ranked = (
@@ -127,7 +134,8 @@ def _render_player_leaderboard(
 
     st.caption(
         f"Top five per group · {metric_label}, ranked within each position group. Steelers players "
-        "only includes players on the latest listed Steelers roster."
+        "only includes players on the latest listed Steelers roster. Active-player "
+        "scope uses players listed as active on the latest roster week."
     )
     chart_rows = ranked.filter(pl.col("Position rank") <= 5).with_columns(
         pl.concat_str(
@@ -290,12 +298,14 @@ def main() -> None:
         player_stats = load_player_stats(season_key)
         contracts = load_contracts()
         current_rosters = load_current_rosters()
+    current_active_ids = current_active_player_ids(current_rosters)
     current_steelers_ids = current_steelers_roster_ids(current_rosters)
     player_values = summarize_player_value(
         player_stats,
         contracts,
         list(season_key),
         current_steelers_ids=current_steelers_ids,
+        current_active_ids=current_active_ids,
     )
     summary = summarize_plays(
         pbp, list(season_key), down=selected_down, ftn=ftn
