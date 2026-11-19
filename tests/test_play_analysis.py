@@ -26,6 +26,8 @@ def player_value_fixture() -> pl.DataFrame:
             "cap_hit_m": [5.0],
             "offensive_yards": [500.0],
             "offensive_touchdowns": [5.0],
+            "tackles": [0.0],
+            "sacks": [0.0],
             "defensive_interceptions": [0.0],
             "forced_fumbles": [0.0],
             "fumble_recoveries": [0.0],
@@ -207,6 +209,7 @@ class SummarizePlaysTests(unittest.TestCase):
     ) -> None:
         connection = MagicMock()
         cursor = MagicMock()
+        cursor.fetchall.return_value = [("offensive_yards",)]
         connection.cursor.return_value.__enter__.return_value = cursor
         connect.return_value = connection
 
@@ -243,11 +246,20 @@ class SummarizePlaysTests(unittest.TestCase):
         )
 
         self.assertTrue(run_id)
-        self.assertEqual(cursor.execute.call_count, 5)
+        self.assertEqual(cursor.execute.call_count, 8)
+        self.assertIn(
+            "ADD COLUMN tackles",
+            cursor.execute.call_args_list[5].args[0],
+        )
+        self.assertIn(
+            "ADD COLUMN sacks",
+            cursor.execute.call_args_list[6].args[0],
+        )
         self.assertIn(
             "ALTER TABLE player_value_summaries",
             cursor.execute.call_args_list[-1].args[0],
         )
+        self.assertIn("SHOW COLUMNS", cursor.execute.call_args_list[4].args[0])
         self.assertEqual(cursor.executemany.call_count, 4)
         for saved_rows in (
             cursor.executemany.call_args_list[0].args[1],
@@ -269,6 +281,10 @@ class SummarizePlaysTests(unittest.TestCase):
         )
         self.assertEqual(
             cursor.executemany.call_args_list[3].args[1][0][5], "WR"
+        )
+        self.assertEqual(
+            cursor.executemany.call_args_list[3].args[1][0][10:13],
+            (5.0, 0.0, 0.0),
         )
         connection.start_transaction.assert_called_once()
         connection.commit.assert_called_once()

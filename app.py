@@ -13,6 +13,7 @@ from nfl_data import load_play_by_play as read_play_by_play
 from player_analysis import (
     DEFENSIVE_POSITION_GROUPS,
     OFFENSIVE_POSITION_GROUPS,
+    current_steelers_roster_ids,
     summarize_player_value,
 )
 from play_analysis import (
@@ -46,6 +47,12 @@ def load_contracts() -> pl.DataFrame:
     return nfl.load_contracts()
 
 
+@st.cache_data(show_spinner=False, ttl=24 * 60 * 60)
+def load_current_rosters() -> pl.DataFrame:
+    """Load current-season roster snapshots for active player identification."""
+    return nfl.load_rosters(nfl.get_current_season())
+
+
 def _render_player_leaderboard(
     player_values: pl.DataFrame,
     side: str,
@@ -57,8 +64,11 @@ def _render_player_leaderboard(
             "Touchdowns per $1M cap hit": "offensive_touchdowns",
         }
     else:
-        metric_options = {"Takeaways per $1M cap hit": "defensive_takeaways"}
-        value_label = "Takeaways"
+        metric_options = {
+            "Tackles per $1M cap hit": "tackles",
+            "Sacks per $1M cap hit": "sacks",
+            "Takeaways per $1M cap hit": "defensive_takeaways",
+        }
 
     controls = st.columns(3)
     position_filter = controls[0].selectbox(
@@ -73,6 +83,8 @@ def _render_player_leaderboard(
     )
     if side == "offense":
         value_label = "Yards" if metric_label.startswith("Yards") else "Touchdowns"
+    else:
+        value_label = metric_label.split(" per ", maxsplit=1)[0]
     minimum_games = controls[2].selectbox(
         "Minimum games",
         options=[0, 8, 16, 32, 64],
@@ -115,7 +127,7 @@ def _render_player_leaderboard(
 
     st.caption(
         f"Top five per group · {metric_label}, ranked within each position group. Steelers players "
-        "are ranked against league peers before the optional Steelers-only filter."
+        "only includes players on the latest listed Steelers roster."
     )
     chart_rows = ranked.filter(pl.col("Position rank") <= 5).with_columns(
         pl.concat_str(
@@ -277,7 +289,14 @@ def main() -> None:
     with st.spinner("Loading leaguewide player stats and contract cap hits…"):
         player_stats = load_player_stats(season_key)
         contracts = load_contracts()
-    player_values = summarize_player_value(player_stats, contracts, list(season_key))
+        current_rosters = load_current_rosters()
+    current_steelers_ids = current_steelers_roster_ids(current_rosters)
+    player_values = summarize_player_value(
+        player_stats,
+        contracts,
+        list(season_key),
+        current_steelers_ids=current_steelers_ids,
+    )
     summary = summarize_plays(
         pbp, list(season_key), down=selected_down, ftn=ftn
     )
@@ -303,9 +322,10 @@ def main() -> None:
     st.caption(
         "Offense uses role-appropriate passing, rushing, and receiving yards or "
         "touchdowns. Defense uses interceptions plus opponent-fumble recoveries; "
-        "forced fumbles are not counted as takeaways unless recovered. Cap hits "
-        "are summed across the selected seasons. Steelers players are identified "
-        "in the league ranking. Offensive line and special-team positions are "
+        "tackles and sacks can also be selected. Forced fumbles are not counted "
+        "as takeaways unless recovered. Cap hits are summed across the selected "
+        "seasons. Steelers-only results are limited to the latest listed roster. "
+        "Offensive line and special-team positions are "
         "omitted because these sources do not provide equivalent individual "
         "production statistics for them."
     )

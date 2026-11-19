@@ -17,6 +17,8 @@ PLAYER_VALUE_SCHEMA = {
     "cap_hit_m": pl.Float64,
     "offensive_yards": pl.Float64,
     "offensive_touchdowns": pl.Float64,
+    "tackles": pl.Float64,
+    "sacks": pl.Float64,
     "defensive_interceptions": pl.Float64,
     "forced_fumbles": pl.Float64,
     "fumble_recoveries": pl.Float64,
@@ -25,10 +27,34 @@ PLAYER_VALUE_SCHEMA = {
 }
 
 
+def current_steelers_roster_ids(rosters: pl.DataFrame) -> set[str]:
+    """Return player IDs on Pittsburgh's latest listed active/reserve roster."""
+    required_columns = {"week", "team", "status", "gsis_id"}
+    missing_columns = sorted(required_columns - set(rosters.columns))
+    if missing_columns:
+        raise ValueError(f"rosters are missing required columns: {missing_columns}")
+    if rosters.is_empty():
+        raise ValueError("the current-season roster data is empty")
+
+    latest_week = rosters.get_column("week").max()
+    return set(
+        rosters.filter(
+            (pl.col("week") == latest_week)
+            & (pl.col("team") == "PIT")
+            & pl.col("status").is_in(["ACT", "RES", "DEV"])
+            & pl.col("gsis_id").is_not_null()
+        )
+        .get_column("gsis_id")
+        .cast(pl.String)
+        .to_list()
+    )
+
+
 def summarize_player_value(
     player_stats: pl.DataFrame,
     contracts: pl.DataFrame,
     seasons: list[int],
+    current_steelers_ids: set[str] | None = None,
 ) -> pl.DataFrame:
     """Aggregate player production and cap hits for the selected seasons.
 
@@ -53,6 +79,9 @@ def summarize_player_value(
         "def_interceptions",
         "def_fumbles_forced",
         "fumble_recovery_opp",
+        "def_tackles_solo",
+        "def_tackle_assists",
+        "def_sacks",
     }
     missing_stats = sorted(required_stats - set(player_stats.columns))
     if missing_stats:
@@ -86,7 +115,6 @@ def summarize_player_value(
             "player_id": player_id,
             "season": season,
             "cap_hit_m": cap_hit,
-            "is_steelers": team.lower() in {"steelers", "pit"},
         }
         for (player_id, season, team), cap_hit in cap_hits.items()
     ]
@@ -95,10 +123,7 @@ def summarize_player_value(
 
     cap_by_player_season = pl.DataFrame(cap_rows).group_by(
         ["player_id", "season"]
-    ).agg(
-        pl.col("cap_hit_m").sum(),
-        pl.col("is_steelers").any(),
-    )
+    ).agg(pl.col("cap_hit_m").sum())
 
     stats = player_stats.filter(
         pl.col("season").is_in(sorted(selected_seasons))
@@ -119,6 +144,9 @@ def summarize_player_value(
         pl.col("def_interceptions").fill_null(0).cast(pl.Float64),
         pl.col("def_fumbles_forced").fill_null(0).cast(pl.Float64),
         pl.col("fumble_recovery_opp").fill_null(0).cast(pl.Float64),
+        pl.col("def_tackles_solo").fill_null(0).cast(pl.Float64),
+        pl.col("def_tackle_assists").fill_null(0).cast(pl.Float64),
+        pl.col("def_sacks").fill_null(0).cast(pl.Float64),
         pl.col("games").fill_null(0).cast(pl.Int64),
     ).with_columns(
         pl.when(pl.col("position_group") == "QB")
@@ -140,6 +168,9 @@ def summarize_player_value(
         (pl.col("def_interceptions") + pl.col("fumble_recovery_opp")).alias(
             "defensive_takeaways"
         ),
+        (pl.col("def_tackles_solo") + pl.col("def_tackle_assists")).alias(
+            "tackles"
+        ),
     )
 
     by_player_season = stats.group_by(
@@ -150,6 +181,8 @@ def summarize_player_value(
         pl.col("games").sum(),
         pl.col("offensive_yards").sum(),
         pl.col("offensive_touchdowns").sum(),
+        pl.col("tackles").sum(),
+        pl.col("def_sacks").sum().alias("sacks"),
         pl.col("def_interceptions").sum().alias("defensive_interceptions"),
         pl.col("def_fumbles_forced").sum().alias("forced_fumbles"),
         pl.col("fumble_recovery_opp").sum().alias("fumble_recoveries"),
@@ -159,7 +192,11 @@ def summarize_player_value(
         cap_by_player_season,
         on=["player_id", "season"],
         how="inner",
-    ).filter(pl.col("cap_hit_m") > 0)
+    ).filter(pl.col("cap_hit_m") > 0).with_columns(
+        pl.col("player_id")
+        .is_in(sorted(current_steelers_ids or set()))
+        .alias("is_steelers")
+    )
     if not valued.height:
         return pl.DataFrame(schema=PLAYER_VALUE_SCHEMA)
 
@@ -173,6 +210,8 @@ def summarize_player_value(
             pl.col("cap_hit_m").sum(),
             pl.col("offensive_yards").sum(),
             pl.col("offensive_touchdowns").sum(),
+            pl.col("tackles").sum(),
+            pl.col("sacks").sum(),
             pl.col("defensive_interceptions").sum(),
             pl.col("forced_fumbles").sum(),
             pl.col("fumble_recoveries").sum(),

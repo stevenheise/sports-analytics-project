@@ -21,6 +21,8 @@ class VercelDashboardTests(unittest.TestCase):
         self.assertIn("Win rate by turnover margin", page)
         self.assertIn("Defensive takeaways by blitz count", page)
         self.assertIn("Player production per cap dollar", page)
+        self.assertIn('["tackles", "Tackles"]', page)
+        self.assertIn('["sacks", "Sacks"]', page)
         self.assertNotIn("<canvas", page)
 
     @patch("vercel.main._query_rows")
@@ -52,6 +54,7 @@ class VercelDashboardTests(unittest.TestCase):
         self.assertEqual(len(result["player_values"]), 1)
         self.assertEqual(query_rows.call_count, 4)
         self.assertEqual(query_rows.call_args_list[0].args[1], (run_id,))
+        self.assertIn("tackles, sacks", query_rows.call_args_list[3].args[0])
 
     @patch("vercel.main._query_rows")
     def test_get_run_rejects_invalid_id_without_querying_database(self, query_rows) -> None:

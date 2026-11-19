@@ -163,7 +163,7 @@
         <section class="panel">
           <div class="panel-heading">
             <h2>Player production per cap dollar</h2>
-            <p class="description">Leaguewide player rankings with Steelers players marked and ranked against their position peers.</p>
+            <p class="description">Leaguewide player rankings with current Steelers roster players marked and ranked against their position peers.</p>
           </div>
           <div class="player-controls" aria-label="Player value filters">
             <label for="player-side">Side of ball
@@ -201,7 +201,9 @@
           <div class="table-wrap" id="player-value-table"></div>
           <p class="footnote" id="player-value-note">
             Offense assigns passing and rushing stats to QBs, rushing and receiving
-            to RBs, and receiving to WRs/TEs. Defense counts interceptions and
+            to RBs, and receiving to WRs/TEs. Defensive rankings also include
+            tackles and sacks. Steelers-only results use the latest roster saved
+            with this run. Defense counts interceptions and
             opponent-fumble recoveries as takeaways; forced fumbles are shown separately.
             Cap hits are summed over the selected seasons. Efficiency is ranked
             within position group, not across positions. Offensive line and
@@ -266,7 +268,7 @@
         playerMetric.replaceChildren();
         const metrics = isOffense
           ? [["offensive_yards", "Yards"], ["offensive_touchdowns", "Touchdowns"]]
-          : [["defensive_takeaways", "Takeaways"]];
+          : [["tackles", "Tackles"], ["sacks", "Sacks"], ["defensive_takeaways", "Takeaways"]];
         for (const [value, label] of metrics) {
           const option = document.createElement("option");
           option.value = value;
@@ -337,7 +339,14 @@
           row.append(name, track, value);
           playerBars.append(row);
         }
-        const label = metric === "offensive_yards" ? "Yards" : metric === "offensive_touchdowns" ? "Touchdowns" : "Takeaways";
+        const labels = {
+          offensive_yards: "Yards",
+          offensive_touchdowns: "Touchdowns",
+          tackles: "Tackles",
+          sacks: "Sacks",
+          defensive_takeaways: "Takeaways",
+        };
+        const label = labels[metric] || "Production";
         playerBars.setAttribute("aria-label", `Top five by ${label} per one million dollars, within position group`);
       }
 

@@ -28,6 +28,10 @@ leaguewide rankings and can be filtered. Offensive line and special-teams
 positions are not scored because the source does not provide equivalent
 individual production measures for those groups. This is a descriptive cap-hit
 comparison, not a complete measure of player value.
+The defensive leaderboard can also rank tackles and sacks per $1 million of cap
+hit. The Steelers-only filter and Steelers markers use players on the latest
+listed Pittsburgh roster (active, reserve, or practice squad) when the summary
+is generated, not everyone who appeared on a past Steelers roster.
 
 The defensive takeaways table compares interceptions and sack-fumbles forced
 per opposing pass play by FTN's charted blitzer count (none, one, or two-plus).

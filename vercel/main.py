@@ -175,8 +175,9 @@ def get_run(run_id: str) -> dict[str, object]:
         """
         SELECT player_id, player_name, team, position_group, games,
                seasons_count AS seasons, cap_hit_m, offensive_yards,
-               offensive_touchdowns, defensive_interceptions, forced_fumbles,
-               fumble_recoveries, defensive_takeaways, is_steelers
+               offensive_touchdowns, tackles, sacks, defensive_interceptions,
+               forced_fumbles, fumble_recoveries, defensive_takeaways,
+               is_steelers
         FROM player_value_summaries
         WHERE run_id = %s
         ORDER BY player_name

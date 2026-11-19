@@ -78,6 +78,8 @@ CREATE TABLE IF NOT EXISTS {PLAYER_VALUES_TABLE_NAME} (
     cap_hit_m DECIMAL(12, 3) NOT NULL,
     offensive_yards BIGINT NOT NULL,
     offensive_touchdowns INT UNSIGNED NOT NULL,
+    tackles BIGINT UNSIGNED NOT NULL,
+    sacks BIGINT UNSIGNED NOT NULL,
     defensive_interceptions INT UNSIGNED NOT NULL,
     forced_fumbles INT UNSIGNED NOT NULL,
     fumble_recoveries INT UNSIGNED NOT NULL,
@@ -268,6 +270,8 @@ def save_analysis_summaries(
             row["cap_hit_m"],
             row["offensive_yards"],
             row["offensive_touchdowns"],
+            row["tackles"],
+            row["sacks"],
             row["defensive_interceptions"],
             row["forced_fumbles"],
             row["fumble_recoveries"],
@@ -315,9 +319,10 @@ def save_analysis_summaries(
             INSERT INTO {PLAYER_VALUES_TABLE_NAME} (
                 run_id, seasons, player_id, player_name, team, position_group,
                 games, seasons_count, cap_hit_m, offensive_yards,
-                offensive_touchdowns, defensive_interceptions, forced_fumbles,
-                fumble_recoveries, defensive_takeaways, is_steelers, saved_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                offensive_touchdowns, tackles, sacks, defensive_interceptions,
+                forced_fumbles, fumble_recoveries, defensive_takeaways,
+                is_steelers, saved_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             player_value_rows,
         ),
@@ -326,6 +331,16 @@ def save_analysis_summaries(
         with connection.cursor() as cursor:
             for create_sql, _, _ in inserts:
                 cursor.execute(create_sql)
+            cursor.execute(f"SHOW COLUMNS FROM {PLAYER_VALUES_TABLE_NAME}")
+            existing_columns = {
+                column[0] for column in cursor.fetchall()
+            }
+            for column_name in ("tackles", "sacks"):
+                if column_name not in existing_columns:
+                    cursor.execute(
+                        f"ALTER TABLE {PLAYER_VALUES_TABLE_NAME} "
+                        f"ADD COLUMN {column_name} BIGINT UNSIGNED NOT NULL DEFAULT 0"
+                    )
             cursor.execute(
                 f"ALTER TABLE {PLAYER_VALUES_TABLE_NAME} "
                 "MODIFY COLUMN offensive_yards BIGINT NOT NULL"
